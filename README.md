@@ -17,8 +17,16 @@ TOTP codes and custom fields from your vault in a shell or a script.
 |---|---|
 | [`DESIGN.md`](DESIGN.md) | Architecture, security model, command surface, milestones M0–M11 |
 | [`HEYLOGIN_SPEC.md`](HEYLOGIN_SPEC.md) | The protocol, reverse-engineered from published client bundles |
-| [`proto/`](proto/) | 53 `.proto` files — 19 services, 123 methods — extraction verified lossless |
+| [`descriptors/`](descriptors/) | The schema as a `FileDescriptorSet` — 19 services, 123 methods, extraction verified lossless |
+| [`tests/fixtures/protocol/`](tests/fixtures/protocol/) | Recorded gRPC-Web exchanges: the happy path and three error shapes |
 | [`tools/extract-protos.py`](tools/extract-protos.py) | Regenerates and re-verifies the schema in one command |
+
+The `.proto` sources are derived output and are not committed. To read the schema:
+
+```sh
+python3 -m venv .venv && ./.venv/bin/pip install protobuf
+./.venv/bin/python tools/extract-protos.py render      # -> proto/*.proto (gitignored)
+```
 
 ## What it will do
 

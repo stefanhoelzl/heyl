@@ -1,0 +1,22 @@
+### request
+POST /api/v1/domain.HealthService/Ping HTTP/1.1
+host: heylogin.app
+content-type: application/grpc-web+proto
+
+# body (gRPC-Web frame: 1 flag byte + 4-byte BE length + message; empty message)
+00 00 00 00 00 
+
+### response
+HTTP/2 200 
+access-control-expose-headers: Grpc-Status-Details-Bin, Vary, Date, Content-Type, Grpc-Status, Grpc-Message, grpc-status, grpc-message
+alt-svc: h3=":443"; ma=2592000
+content-type: application/grpc-web+proto
+grpc-message: bad request
+grpc-status: 13
+grpc-status-details-bin: CA0SC2JhZCByZXF1ZXN0GvIBCiZ0eXBlLmdvb2dsZWFwaXMuY29tL2RvbWFpbi5Eb21haW5FcnJvchLHAQigURoLQmFkIHJlcXVlc3QiogFUaGUgYXBwIHNlbnQgYW4gaW5jb3JyZWN0IHJlcXVlc3QgdG8gdGhlIHNlcnZlci4gV2UgYXJlIGludmVzdGlnYXRpbmcuIEluIHRoZSBtZWFudGltZSwgbWFrZSBzdXJlIHlvdSBhcmUgdXNpbmcgdGhlIGxhdGVzdCB2ZXJzaW9uIG9mIG91ciBzb2Z0d2FyZSB0aGVuIHRyeSBhZ2Fpbi4qEGlGcGh2dVJ3cFNHSXRPVng
+vary: Origin
+via: 1.1 Caddy
+date: Tue, 08 Sep 2026 22:18:20 GMT
+
+# body
+(empty)

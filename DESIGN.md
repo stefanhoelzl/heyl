@@ -132,7 +132,14 @@ merge is ever executed**. Rails:
 
 ### Memory hygiene
 
-Seed and derived keys live in `Zeroizing<[u8; 32]>` / `secrecy::Secret`, never in `String`.
+Secret material lives in newtypes that wrap `Zeroizing` bytes **and hold an `mlock` guard**, so a
+seed or a `protectedSecret` is never written to swap. Those newtypes implement no `Deref`, no
+`AsRef<[u8]>`, no `Serialize`, and a hand-written `Debug` that redacts — the bytes are reachable
+only through an explicit `expose_secret()`, which makes every access site greppable in one query.
+
+Core-dump exclusion is a *process* concern rather than a buffer concern, so `heyl-cli` sets
+`RLIMIT_CORE = 0` at startup instead of pushing `madvise` into the leaf crypto crate.
+
 Secret values are written to the output sink and dropped; they are never logged, never included
 in error messages, and never passed as command-line arguments to child processes.
 
@@ -142,6 +149,7 @@ in error messages, and never passed as command-line arguments to child processes
 |---|---|
 | Laptop stolen, unlock expired | Keychain yields token + session key; neither decrypts anything. |
 | Laptop stolen, unlock live | Attacker can read secrets until expiry — same exposure as an unlocked browser session. |
+| Seed or `protectedSecret` reaches disk via swap or a core dump | **Mitigated**, not accepted: secret buffers are `mlock`ed, and `heyl-cli` sets `RLIMIT_CORE = 0`. A swapped page is a copy of the seed at rest, which §3 says never happens. |
 | Malicious process reading our memory | Not defended (no OS defends this meaningfully); minimised by short process lifetime. |
 | Shoulder-surfing / shell history | `run` keeps secrets out of files and history; `get` prints only what was asked for. |
 | Backend compromise | Backend holds only ciphertext; unchanged from heylogin's own design. |
@@ -156,25 +164,50 @@ heyl/
 ├── tests/fixtures/protocol/  recorded gRPC-Web exchanges (M0)
 ├── tools/extract-protos.py   regeneration + round-trip verification
 └── crates/
+    ├── heyl-crypto/      §2 primitives, KDF, typed contexts       [leaf, deterministic]
+    ├── heyl-domain/      ids, enums, locks, Timestamp, unlock chain, domain rules  [pure]
+    ├── heyl-vault/       serialize format, heymerge parse, schemas [pure codec]
+    ├── heyl-ports/       trait definitions ONLY — no adapters, no platform code
+    ├── heyl-app/         use cases — no tonic, no proto, no OS    [the core]
     ├── heyl-proto/       generated types + service clients
-    ├── heyl-crypto/      §2 primitives, KDF, key hierarchy      [pure]
-    ├── heyl-vault/       serialize format, heymerge parse, schemas  [pure]
-    ├── heyl-ports/       trait definitions ONLY — no platform code, no adapters
-    ├── heyl-client/      transport, auth, sync, unlock          [depends on ports]
+    ├── heyl-grpc/        HeylApi adapter; the ONLY crate that sees heyl-proto
     ├── heyl-platform/    adapters: linux / macos / windows / headless
-    └── heyl-cli/         clap surface, output, wiring
+    └── heyl-cli/         clap surface, output, wiring — the composition root
 ```
 
-Two boundaries carry the weight.
+```
+heyl-crypto                     deterministic primitives + KDF + typed contexts
+     ↑
+heyl-domain                     locks, ids, content types, Timestamp,
+     ↑                          unlock chain, unprotect, domain rules
+     ├── heyl-vault             serialize / heymerge / schemas
+     ├── heyl-ports             SecretStore, Paths, Terminal, ProcessRunner,
+     │                          FidoDevice, HeylApi, RandomSource, Clock
+     └── heyl-app               use cases
+              ↑
+     heyl-grpc · heyl-platform · fakes
+              ↑
+          heyl-cli
+```
 
-**Purity.** `heyl-crypto` and `heyl-vault` are I/O-free, so they are exhaustively
+Three boundaries carry the weight.
+
+**Purity.** `heyl-crypto`, `heyl-domain` and `heyl-vault` are I/O-free, so they are exhaustively
 testable against fixtures with no network and no account. That is where the correctness risk
-concentrates, and it is the main testability lever.
+concentrates, and it is the main testability lever. `heyl-crypto` goes further and is
+**strictly deterministic**: every function is a total function of its arguments, and randomness
+arrives as explicit bytes drawn from the `RandomSource` port by `heyl-app`. That is what makes
+the *wire format* of `symEncrypt` / `asymEncrypt` fixture-testable at all — a fresh internal
+nonce would make the output unpinnable.
 
-**Ports and adapters.** Nothing above `heyl-platform` may reference an OS API. Every
-platform-specific capability is a trait in `heyl-ports`, implemented per platform in
-`heyl-platform` and selected at compile time. `heyl-client` and `heyl-cli` are
-written against the traits and are identical on every target.
+**Ports and adapters — including the backend.** Nothing above the adapters may reference an OS
+API *or the wire protocol*. `HeylApi` is a driven port like any other, so `heyl-app` cannot tell
+gRPC from a fake, and the recorded exchanges in `tests/fixtures/protocol/` are replayed against a
+fake implementation of it. `heyl-app` depends on the port traits, not on `tokio`; the runtime
+lives in `heyl-cli`.
+
+**Composition happens once.** `heyl-cli` is the only crate that names an adapter. `heyl-app`
+physically cannot reach `heyl-platform` or `heyl-proto`, because it does not depend on them.
 
 | Port | Responsibility | Linux | macOS | Windows |
 |---|---|---|---|---|
@@ -183,6 +216,9 @@ written against the traits and are identical on every target.
 | `Terminal` | TTY detection, hidden input, QR rendering, prompts | termios | termios | Console API |
 | `FidoDevice` | CTAP2 `hmac-secret` transport (M9) | `ctap-hid-fido2` | `ctap-hid-fido2` | **`WebAuthn.dll`** — HID is not directly claimable |
 | `ProcessRunner` | spawn child with injected environment for `run` | fork/exec | fork/exec | CreateProcess |
+| `HeylApi` | the backend, as ~12 use-case-shaped methods over domain types | `heyl-grpc` (tonic + `heyl-proto`) — identical on every platform |||
+| `RandomSource` | all randomness: session keys, nonces, the long-poll keypair | `OsRng` |||
+| `Clock` | the current instant, for unlock expiry and `updateTime` | system clock |||
 
 Two adapters exist on every platform regardless of OS:
 
@@ -191,6 +227,12 @@ Two adapters exist on every platform regardless of OS:
   port implementation rather than a special case threaded through the code.
 - **In-memory / fake adapters** — used by the test suite, so end-to-end tests run without
   touching a real keychain or terminal.
+
+The last three are platform-independent: they are ports because they isolate what the core cannot
+control — the network, randomness and time — not because they differ per OS. `RandomSource` and
+`Clock` exist so that every key-generation and every timestamp is deterministic under test;
+`Clock` in particular guards §4's byte-exact `updateTime` format, where a merge silently resolves
+the wrong way if the instant or the formatting is off.
 
 Consequence: adding Windows is implementing five traits, not editing the client. That is the
 whole point of the boundary, and it is why M11 is sized S rather than a rewrite.
@@ -264,24 +306,51 @@ Two things to get right, both found the hard way at M0:
 
 ### Crypto crates — decided at M0
 
-| Need (§2) | Crate |
-|---|---|
-| XSalsa20-Poly1305 secretbox, X25519 crypto_box | `dryoc` 1.0 (pure-Rust libsodium port, libsodium-shaped API) |
-| Raw X25519 shared point (SAS) | `x25519-dalek` |
-| Ed25519 | `ed25519-dalek` |
-| SHA-512, HMAC-SHA256 | `sha2`, `hmac` |
-| Argon2id (recovery code) | `argon2` |
-| AES-GCM (newer material) | `aes-gcm` |
-| Snappy (`0x01` framing) | `snap` |
-| Zeroization | `zeroize`, `secrecy` |
+| Need (§2) | Crate | Ver |
+|---|---|---|
+| XSalsa20-Poly1305 secretbox | `crypto_secretbox` | 0.1 |
+| X25519 crypto_box (NaCl `box` layout) | `crypto_box` | 0.9 |
+| Ed25519 | `ed25519-dalek` | 3.0 |
+| Raw X25519 shared point (SAS, M4) | `x25519-dalek` | 3.0 |
+| SHA-512, HMAC-SHA256 | `sha2`, `hmac` | 0.11 / 0.13 |
+| Argon2id (recovery code) | `argon2` | 0.6 |
+| AES-GCM (newer material) | `aes-gcm` | 0.11 |
+| Snappy (`0x01` framing) | `snap` | 1.x |
+| Zeroization | `zeroize` | 1.x |
+| `mlock` for secret buffers | `region` | 4.0 |
 
-`dryoc` is chosen over RustCrypto's `nacl-compat` because §2 is specified as
-"libsodium-equivalent", so a libsodium-shaped API transcribes rather than reconstructs.
+**RustCrypto is chosen over `dryoc`, on future-proofing.** `dryoc` is not an alternative to these
+crates — it is a facade *over* them (it depends on `curve25519-dalek`, `salsa20`, `sha2`,
+`subtle`). Depending on the base of the stack rather than a wrapper over it means there is nothing
+to migrate off if the wrapper is abandoned, and the wrapper is the one with bus factor 1: one
+author wrote 416 of `dryoc`'s 429 lifetime commits, and 58 of 58 in the last year. RustCrypto's
+NaCl-compat line is quieter (9 commits, 2 authors) but sits inside an organisation, and it is
+mid-migration rather than dormant — `crypto_box` 0.10-pre already targets `curve25519-dalek` 5.0
+and the new trait generation.
 
-**Verified at M0.** All nine crates above compile together, and `cargo tree` over the whole
-graph contains no `cc`, no `cmake` and no `*-sys` crate — the "pure Rust" claim holds as
-stated. A `x86_64-unknown-linux-musl` build of that set links `static-pie` with no C toolchain
-present.
+Measured, 2026-09-09: the RustCrypto graph is 77 crates against `dryoc`'s 49, and carries two
+copies of `curve25519-dalek` (4.1.3 via `crypto_box`, 5.0.0 via `ed25519-dalek`) — bloat, not a
+correctness problem, since no curve type ever crosses between NaCl box and Ed25519. It resolves
+when `crypto_box` 0.10 lands. Both graphs are free of `cc`, `cmake` and `*-sys`.
+
+The cost of not using `dryoc` is that §2's libsodium vocabulary no longer maps one-to-one onto
+call sites. `heyl-crypto` absorbs that by carrying a bundle-symbol → Rust-item table on its front
+page, so the spec, the bundle and the code stay cross-referenceable.
+
+**`secrets` was evaluated for `mlock` and rejected.** Its `build.rs` links the system libsodium
+*unconditionally* — the `use-libsodium-sys` feature changes only how the library is found, not
+whether it is linked — so it would require libsodium on every build machine and break the static
+musl story. `region` 4.0 replaces it: `region::lock()` is a **safe** `fn` returning an RAII
+`LockGuard`, so `heyl-crypto` gets `mlock` while keeping `unsafe_code = "forbid"`, and its
+dependencies (`libc`, `mach2`, `windows-sys`, `bitflags`) are FFI declarations with no C library
+behind them. What `region` does not give is `MADV_DONTDUMP`; core-dump suppression is a process
+concern and lives in `heyl-cli` as `RLIMIT_CORE = 0`.
+
+**Verified at M0, re-verified at M1 for the chosen stack.** The crates above compile together, and
+`cargo tree` over the whole graph contains no `cc`, no `cmake` and no `*-sys` crate — the "pure
+Rust" claim holds as stated. `libc` is present and permitted: it is an FFI *declaration* crate
+with no C source and no build script needing a compiler. This is now enforced rather than
+observed — see the `cargo-deny` ban in §6.
 
 **But the TLS layer breaks the claim, and it is worth being precise about where.** Both
 `ring` and `aws-lc-sys` are C projects driven by `cc`/`cmake`, and rustls pulls one or the
@@ -349,29 +418,40 @@ bundles is `'ExtensionAutotype'` — the module itself is type-only and was elid
 maps. The accepted set, and whether the backend validates it at all, must be determined
 empirically.
 
-#### Dependency rules — decided: seven crates
+#### Dependency rules — decided: nine crates
 
 A crate boundary is only a guarantee if the dependency graph is stated and enforced. The
 allowed edges:
 
 | Crate | May depend on | Must **not** depend on |
 |---|---|---|
+| `heyl-crypto` | the §2 crypto crates, `zeroize`, `region` | any runtime, any transport, **any `heyl-*`** |
+| `heyl-domain` | `heyl-crypto`, `serde`, `serde_json`, `jiff`, `uuid` | any runtime, any transport, `heyl-proto`, `heyl-ports` |
+| `heyl-vault` | `heyl-domain`, `heyl-crypto`, `serde_json`, `snap` | any runtime, any transport, `heyl-proto` |
+| `heyl-ports` | `heyl-domain`, trait plumbing only (`async-trait`) | every adapter, `heyl-app`, `heyl-proto` |
+| `heyl-app` | `heyl-domain`, `heyl-crypto`, `heyl-vault`, `heyl-ports` | **`heyl-platform`, `heyl-grpc`, `heyl-proto`, `tokio`** |
 | `heyl-proto` | `tonic`, `tonic-web`, `prost`, `prost-types` | any other `heyl-*` |
-| `heyl-crypto` | `dryoc`, `*-dalek`, `argon2`, `sha2`, `hmac`, `zeroize`, `secrecy` | any runtime, any transport, any other `heyl-*` |
-| `heyl-vault` | `heyl-crypto`, `serde_json`, `snap`, `jiff`, `uuid` | any runtime, any transport, `heyl-proto` |
-| `heyl-ports` | trait plumbing only (`async-trait`, `secrecy`) | every adapter and every other `heyl-*` |
-| `heyl-client` | `heyl-proto`, `heyl-crypto`, `heyl-vault`, `heyl-ports`, `tokio`, `hyper`, `rustls` | **`heyl-platform`** |
-| `heyl-platform` | `heyl-ports`, `keyring`, `directories`, `crossterm`, `rpassword`, `qr2term`, `ctap-hid-fido2` | `heyl-client` |
-| `heyl-cli` | everything — this is the only crate that wires adapters into the client | — |
+| `heyl-grpc` | `heyl-proto`, `heyl-domain`, `heyl-ports`, `tokio`, `hyper`, `rustls` | `heyl-platform`, `heyl-app` |
+| `heyl-platform` | `heyl-ports`, `heyl-domain`, `keyring`, `directories`, `crossterm`, `rpassword`, `qr2term`, `ctap-hid-fido2` | `heyl-app`, `heyl-grpc` |
+| `heyl-cli` | everything — the only crate that wires adapters into the core | — |
 
-Two edges do the real work. **`heyl-crypto` and `heyl-vault` cannot reach the network**, because
-they do not depend on a runtime or transport at all — not by convention, but because the symbols
-do not exist. And **`heyl-client` cannot see `heyl-platform`**, so it is physically incapable of
-calling an OS API; composition happens once, in `heyl-cli`. That is what makes the ports real
-rather than decorative, and it is why the split is worth seven publishes on crates.io.
+Three edges do the real work. **`heyl-crypto`, `heyl-domain` and `heyl-vault` cannot reach the
+network**, because they do not depend on a runtime or transport at all — not by convention, but
+because the symbols do not exist. **`heyl-app` cannot see `heyl-platform` or `heyl-grpc`**, so it
+is physically incapable of calling an OS API or constructing a request; composition happens once,
+in `heyl-cli`. And **`heyl-crypto` depends on no `heyl-*` crate at all**, which is what lets it be
+strictly deterministic and exhaustively fixture-tested. That is what makes the ports real rather
+than decorative.
 
-Enforce it in CI with a `cargo tree`-based check (or `cargo-deny` bans) so a violation fails the
-build rather than relying on review to catch a new dependency line.
+Enforce it in CI with a `cargo tree`-based check so a violation fails the build rather than
+relying on review to catch a new dependency line. `cargo-deny` carries the complementary bans:
+no `cc`, no `cmake`, no `*-sys` crate (with `libc` explicitly allowed), so M0's measured "pure
+Rust" property is an invariant rather than an observation, and a dependency bump that quietly
+introduces a C toolchain fails the build.
+
+`unsafe_code = "forbid"` is declared once in `[workspace.lints]`; each crate opts in with
+`[lints] workspace = true`, so a crate that omits it is visible in its own manifest rather than
+invisible in a missing attribute.
 
 ### Reused crates
 
@@ -390,7 +470,7 @@ endorsement; everything here gets pinned.
 | **Timestamps** | `jiff` | 0.2 | ISO 8601 — see the ordering constraint below. |
 | **JSON** | `serde_json` (`preserve_order`) | 1.x | `preserve_order` is **required**, not optional — see below. |
 | **UUID** | `uuid` | 1.x | heymerge element keys. |
-| **Errors** | `thiserror` / `anyhow` | 2.x / 1.x | Typed in libraries, contextual in the binary. |
+| **Errors** | `thiserror` / `anyhow` | 2.x / 1.x | Typed in libraries, contextual in the binary. Per-crate enums; `heyl-app` owns the taxonomy §5's exit codes name, `heyl-cli` maps it to codes. **No error ever carries key, plaintext or ciphertext bytes** — but decrypt failures *are* distinguished (too-short / bad-length / authentication), because the padding-oracle argument for opacity does not apply to a client decrypting data it fetched, and M2/M3 are exactly where a failed decryption must be diagnosable. |
 | **Snapshot tests** | `insta` | 1.48 | Vault-decode and output-format fixtures. |
 | **CLI tests** | `assert_cmd`, `predicates` | — | Exit codes and the stdout/stderr contract of §5. |
 | **Property tests** | `proptest` | 1.x | heymerge round-trip fidelity. |
@@ -416,8 +496,8 @@ and test it against known JS output.
 
 #### What this does to the ports
 
-`keyring` and `directories` mean two of the five ports contain **no OS-specific code of our
-own** — the adapter delegates. The ports stay, because they are what let us bind
+`keyring` and `directories` mean two of the five *platform* ports contain **no OS-specific code
+of our own** — the adapter delegates. The ports stay, because they are what let us bind
 `HeadlessSecretStore` for CI and fakes for tests, but they get thin.
 
 The exception is `FidoDevice`. On Windows, non-elevated processes cannot claim FIDO HID devices
@@ -443,13 +523,13 @@ the only one that imposes constraints on the codebase:
   inside a 39 s clean release build — noise. Committing 10,838 lines of generated Rust to save
   0.2 s would trade a large diff on every schema bump for nothing, so the descriptor set stays
   the only committed artifact.
-- **Publishing `heyl` means publishing all seven workspace crates**, since `cargo publish`
-  rejects path dependencies without versions. Automate with `release-plz`; mark the six library
+- **Publishing `heyl` means publishing all nine workspace crates**, since `cargo publish`
+  rejects path dependencies without versions. Automate with `release-plz`; mark the eight library
   crates as internal with no API-stability guarantee in their READMEs.
 
-The seven-crate split is kept regardless — see the dependency rules above. Collapsing to one
+The nine-crate split is kept regardless — see the dependency rules above. Collapsing to one
 crate with modules would reduce compiler-checked guarantees to convention, which is a worse
-trade than seven publishes.
+trade than nine publishes.
 
 crates.io publication happens at **M8**, not before — the name is reserved earlier with a
 placeholder so it cannot be taken in the meantime.
@@ -559,15 +639,33 @@ not one-time, and it unlocks every vault).
 
 ## 6. Testing
 
-| Layer | Approach | Needs an account? |
-|---|---|---|
-| Primitives (§2) | Known-answer tests from libsodium/tweetnacl vectors | No |
-| KDF & key hierarchy (§3) | Fixed-seed vectors; assert every context salt derives a stable key | No |
-| Vault decode | Recorded commit blobs + their expected plaintext, checked in redacted | No |
-| heymerge round-trip | Property test: parse → serialize preserves unknown keys byte-for-byte | No |
-| Protocol | Recorded request/response fixtures replayed against the transport trait | No |
-| Port adapters | Fake `SecretStore` / `Terminal` / `ProcessRunner`; the suite never touches a real keychain | No |
-| End-to-end | Throwaway account with a `DUMMY` authenticator, hidden `--dummy` login path | Yes |
+| Layer | Approach | Evidence | Needs an account? |
+|---|---|---|---|
+| Primitives (§2) | Known-answer tests from libsodium/tweetnacl vectors; Argon2id from RFC 9106 | **authoritative** | No |
+| KDF & key hierarchy (§3) | Fixed-seed snapshots, one per derivation, independently addressable | *regression only* — see below | No |
+| Vault decode | Recorded commit blobs + their expected plaintext, checked in redacted | authoritative once captured | No |
+| heymerge round-trip | Property test: parse → serialize preserves unknown keys byte-for-byte | authoritative | No |
+| Protocol | Recorded request/response fixtures replayed against a **fake `HeylApi`** | authoritative | No |
+| Port adapters | Fake `SecretStore` / `Terminal` / `ProcessRunner` / `Clock` / `RandomSource`; the suite never touches a real keychain | — | No |
+| End-to-end | Throwaway account with a `DUMMY` authenticator, hidden `--dummy` login path | authoritative | Yes |
+
+**The key-hierarchy row is weaker than the others, deliberately.** Nothing upstream covers
+heylogin's *composition* — which context string, concatenated in which order, truncated where — so
+a fixed-seed suite proves self-consistency, not agreement with heylogin. A mistyped context would
+yield stable, self-consistent, wrong keys and the suite would stay green. Building a differential
+oracle (running the shipped bundle as a reference) would cost more than the milestone it guards,
+so instead the oracle is **staged through M2**:
+
+- `CreateTokens` accepting our signature is backend confirmation of the seed derivation,
+  `salt-authenticator-login-signing-key-`, the KDF and Ed25519;
+- M2 additionally calls `Sync`/`ListCommits` and decrypts one vault, confirming the profile and
+  vault limbs a milestone earlier than M3.
+
+That is why the derivation snapshots are stored **one per link** rather than as a single blob: a
+failure at M2 or M3 then names the link instead of pointing at "crypto". Authoritative vectors
+live in `tests/fixtures/crypto/upstream/` as committed JSON and must never change silently;
+regression values are `insta` snapshots, where a diff surfacing in `cargo insta review` is exactly
+the intended signal.
 
 The `DUMMY` authenticator (`secretInfo = JSON.stringify({seed})`) makes fully automated e2e
 tests possible with no phone in the loop. It is **test-only, behind a hidden flag, never a
@@ -588,9 +686,9 @@ actually released.
 | # | Milestone | Exit criterion | Size |
 |---|---|---|---|
 | **M0** | ✅ **Codegen viability spike** — both stacks built at full parity from `descriptors/`, protocol settled empirically | Done: gRPC-Web confirmed sole protocol; `CLIENT_TYPE_CLI` accepted; 19/19 services and 123/123 methods generated by both stacks with zero warnings; `Ping` and `DomainError{30100}` verified live; `tonic` chosen on measured criteria | M |
-| **M1** | **Crypto core** — §2 primitives, `deriveSecretFromSeed`, all context salts, key hierarchy | KAT suite green; fixed seed → stable keys | M |
-| **M2** | **Recovery-code login** — `CreateChallenge`→`CreateTokens`, Argon2id seed, `SecretStore` port | `heyl login --recovery-code` yields a usable token | M |
-| **M3** | **Read path** — `Sync`, `ListCommits`, profile/vault unlock, serialize + heymerge parse | `heyl list` and `get --field password` work against a real account | **L** |
+| **M1** | **Crypto core** — workspace + CI, `heyl-crypto` (§2 primitives, `deriveSecretFromSeed`, every context salt v1 needs) and `heyl-domain` (ids, locks, `Timestamp`, the full key hierarchy) | *proven*: primitives vs upstream vectors, Argon2id vs RFC 9106. *pinned*: every derivation snapshotted per link, regression-only until M2. *enforced*: dependency-graph rules, no `unsafe`, no `cc`/`cmake`/`*-sys`. *built*: full hierarchy, `mlock`ed secret newtypes | M |
+| **M2** | **Recovery-code login + hierarchy confirmation** — `CreateChallenge`→`CreateTokens`, Argon2id seed, `SecretStore` port, then one `Sync`/`ListCommits` vault decrypt | `heyl login --recovery-code` yields a usable token, **and one vault decrypts** — which is what actually confirms M1's key hierarchy against the backend | **L** |
+| **M3** | **Read path** — full sync, profile/vault enumeration, serialize + heymerge parse, selector resolution | `heyl list` and `get --field password` work against a real account | **L** |
 | **M4** | **Phone swipe** — long-poll channel, QR in terminal, session self-unlock | `heyl login` with a phone; unlock survives to next day 02:00 | M |
 | **M5** | **Session registration** — `SessionMetadata` write, `logout` tombstone, `session list\|revoke` | CLI appears as a named device in the app and is revocable there | M |
 | **M6** | **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy | Full command set; `--format json` stable | M |
@@ -600,9 +698,10 @@ actually released.
 | **M10** | **Device-to-device unlock** — `RequestSessionUnlock` + Sync polling + cancel-on-abort | An unlocked browser session can unlock the CLI; no phone needed | S |
 | **M11** | **Windows support** — implement the five ports for Windows; no changes above `heyl-platform` | Same test suite green on Windows CI | S |
 
-**Critical path: ~~M0~~ → M1 → M2 → M3.** M0 is done. M3 is the milestone that proves the whole
-reverse engineering is correct; everything after it is addition rather than risk. M4 and M5 can proceed
-in parallel with M6 once M3 lands.
+**Critical path: ~~M0~~ → M1 → M2 → M3.** M0 is done. M1 carries the correctness risk but cannot
+retire it: with no oracle available offline, **M2 is where the reverse engineering is first
+confirmed**, which is why M2 now reaches past login to decrypt a single vault and is sized L. M3
+generalises that to the whole read path. M4 and M5 can proceed in parallel with M6 once M3 lands.
 
 The first genuinely useful build is **M3** — read-only, recovery-code login, no phone flow.
 Worth dogfooding rather than waiting for M8.
@@ -620,7 +719,7 @@ the core, which is the intent behind the port boundary.
 | `tonic` / `tonic-web` API churn | Low | `tonic` is mature and widely deployed. `connectrpc` was built at full parity during M0 and works, so a switch back is a known quantity rather than a hope. |
 | Static musl artifacts need a C cross-toolchain | Medium | Found at M0: `ring`/`aws-lc-sys` are C. M7 uses `cargo-zigbuild` or `cross`; not a code change, but it must be in the release pipeline from the start. |
 | gRPC-Web streaming (`StreamingSync`, `LongPollSync`) from a native client is untested | Medium | **M0 did not retire this.** It is M4's exposure; retire it early in M4 rather than at the end. |
-| A context salt or KDF detail is subtly wrong | Medium | Fails loudly (decryption fails), not silently. M1's KAT suite is the guard. |
+| A context salt or KDF detail is subtly wrong | Medium | **M1's suite is *not* the guard** — a mistyped context yields stable, self-consistent, wrong keys and the suite stays green. The guard is M2: `CreateTokens` acceptance confirms the login limb, and M2's single vault decrypt confirms the profile/vault limb. Per-link snapshots make the failure name the link. |
 | heymerge entry shape wrong → app misreads the device | Low | Single entry, exclusively-owned key, validated against the app's rendering at M5. |
 | WebAuthn PRF salt transform missed → silently wrong seed | High if unguarded | Replicate `SHA-256("WebAuthn PRF" ‖ 0x00 ‖ salt)`; cross-check against a browser-derived seed at M9. |
 | Legacy automerge (`0x5B`) vaults in the wild | Low | Detected and reported, not guessed at. |

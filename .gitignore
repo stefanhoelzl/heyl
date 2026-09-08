@@ -1,3 +1,7 @@
+# Recovered bundle + extraction scratch. BUILD INPUT ONLY -- never committed.
+# extract-protos.py writes .work/ relative to its --work default, which resolves
+# to the repository root, not tools/.
+.work/
 tools/.work/
 tools/.venv/
 /target

@@ -97,9 +97,72 @@ All primitives are libsodium-equivalent, implemented with `@noble`/`@scure`.
   for the mutually-authenticated push channel.
 - **Recovery code** — Argon2id → 32-byte seed (§4).
 
-Context strings live in `client-core/src/kdfFixedInfoValues.ts` and `lib-vault-crypto/src/salts.ts`
-(all recovered), e.g. `salt-authenticator-login-signing-key-`,
-`salt-profile-storable-vault-key-encryption-key-`, `salt-session-encryption-key-`.
+The `deriveSecretFromSeedModern` variant (`HMAC-SHA256(key = seed[‖secondary], msg = utf8(salt))`,
+output fixed at 32 bytes) is documented in the source as *not* a drop-in replacement — it produces
+different bytes and is only for newly derived AES-GCM material.
+
+### Context composition
+
+Context strings come in **two layers**, and the derivation functions concatenate them. A
+*key-type prefix* (`lib-vault-crypto/src/salts.ts`) selects what kind of key is being made; a
+*fixedInfo* value (`client-core/src/kdfFixedInfoValues.ts`) binds it to a purpose. The KDF
+receives `prefix + fixedInfo` as a single string.
+
+```
+deriveSymEncryptionKey (seed, secondary, fi)  = deriveSecretFromSeed(.., 'salt-key-symmetric-'  + fi, 32)
+deriveSigningKeyPair   (seed, secondary, fi)  = deriveSecretFromSeed(.., 'salt-key-signing-'    + fi, 32) -> Ed25519 seed
+deriveEncryptionKeyPair(seed, secondary, fi)  = deriveSecretFromSeed(.., 'salt-key-encryption-' + fi, 32) -> X25519 scalar
+combineSharedSecret    (privK, pubK,     ctx) = deriveSymEncryptionKey(X25519(privK,pubK), null, 'salt-shared-' + ctx)
+```
+
+Signatures use their own prefixes over the *signed object's* type, not the key's:
+`sign(k, obj, 'salt-sig-encryption-' + fi)` for an encryption public key,
+`'salt-sig-signing-' + fi` for a signing public key, `'salt-sig-shared-' + fi` for a shared-secret
+public key, and a bare `'salt-sig-hash-'` (no fixedInfo) for `signHash`.
+
+`deriveSecretFromSeed` validates: seed exactly 32 bytes; secondary null or exactly 32; **salt at
+least 8 characters**; length 32 or 64. Note the "salt-" naming is historic — the source comments
+state these are NIST SP 800-56A *FixedInfo* context bindings, not cryptographic salt.
+
+### FixedInfo values
+
+The **secondary seed** is the authenticator's server-stored `secretSalt` (32 bytes) for every
+authenticator key **except the login key**, which passes `null` — that is what lets login proceed
+before `secretSalt` has been revealed. Profile keys derive from the profile seed with `null`.
+
+| Layer | Purpose | fixedInfo |
+|---|---|---|
+| Authenticator | login signing (secondary = **null**) | `salt-authenticator-login-signing-key-` |
+| Authenticator | identity signing, high-security | `salt-authenticator-signing-key-` |
+| Authenticator | profile-seed encryption, high-security | `salt-authenticator-encryption-key-` |
+| Authenticator | signing, storable | `salt-authenticator-signing-key-` |
+| Authenticator | profile-seed encryption, storable | `salt-authenticator-encryption-key-` |
+| Authenticator | WebAuthn seed derivation | `salt-authenticator-webauthn-seed-` |
+| Profile | identity signing, high-security | `salt-profile-high-security-identity-signing-key-` |
+| Profile | vault-key encryption, high-security | `salt-profile-high-security-vault-key-encryption-key-` |
+| Profile | profile-key encryption, high-security | `salt-profile-high-security-profile-key-encryption-key-` |
+| Profile | signing, storable | `salt-profile-storable-signing-key-` |
+| Profile | vault-key encryption, storable | `salt-profile-storable-vault-key-encryption-key-` |
+| Profile | profile-key encryption, storable | `salt-profile-storable-profile-key-encryption-key-` |
+| Session | encryption key | `salt-session-encryption-key-` |
+| Session | persistable encryption key | `salt-session-persistable-encryption-key-` |
+
+Signature fixedInfo values (used with the `salt-sig-*` prefixes above):
+`salt-authenticator-encryption-key-signature-`, `salt-authenticator-signing-key-signature-`,
+`salt-profile-high-security-vault-key-encryption-key-signature-`,
+`salt-profile-high-security-profile-key-encryption-key-signature-`,
+`salt-profile-storable-signing-key-signature-`,
+`salt-profile-storable-vault-key-encryption-key-signature-`,
+`salt-profile-storable-profile-key-encryption-key-signature-`,
+`salt-session-encryption-key-signature-`.
+
+Note the high-security and storable authenticator keys share fixedInfo values
+(`salt-authenticator-signing-key-` / `salt-authenticator-encryption-key-`) and are separated only
+by the tier of the seed they are derived from — a detail that is easy to get wrong and produces
+stable, plausible, wrong keys.
+
+There is also `salt-profile-storable-seed-` and `salt-long-poll-login-encryption-key-`; the
+latter derives the ephemeral QR-channel keypair (§5).
 
 ---
 
@@ -169,7 +232,12 @@ Server-stored per authenticator (`Authenticator`): the derived public keys, a `s
 ### Recovery code (`BACKUP_CODE`)
 - The seed is `Argon2id(password = utf8(code), salt = b64decode(saltBase64), memory = memoryCost,
   time = iterations, parallelism, hashLen = 32)` (`src/util/recovery/calculateRecoverySeed.ts`), with
-  parameters from the authenticator's `secretInfo` (`RecoverySecretInfo = { checksum, recoveryParameters }`).
+  parameters from the authenticator's `secretInfo`
+  (`RecoverySecretInfo = { checksum, recoveryParameters }`, where
+  `recoveryParameters = { saltBase64, iterations, memoryCost, parallelism }`).
+- **The code is verifiable offline.** `checksum` is base64 of `SHA512(seed)[:32]`, so a client can
+  reject a mistyped recovery code locally, before any network call
+  (`authenticator/recoverySecret.ts`).
 - Code format: six groups of four digits — `1234-5678-9012-3456-7890-1234` — hashed **including the dashes**.
 - **Reusable**, not one-time: it is a standing authenticator, invalidated only by explicit regeneration
   (`onlineInternalRegenerateRecovery` deletes the old + adds a new one). `secretInfo` here is the checksum
@@ -348,6 +416,14 @@ profile high-security seed ──KDF('salt-profile-high-security-vault-key-encry
 VaultProfileLock.encryptedStorableVaultKey     ──asym-decrypt──► vaultSecret       (content)
 VaultProfileLock.encryptedHighSecurityVaultKey ──asym-decrypt──► protectedSecret   (secret values)
 ```
+
+`VaultProfileLock` carries a third, optional field not shown above:
+`encryptedVaultMessagePrivateKey`, an asym-encrypted X25519 private key unwrapped with the same
+`hsVaultKeyEncPriv`. It is absent for ordinary vaults.
+
+Each lock is guarded by a **key generation**: `VaultProfileLock.lockingProfileKeyGenerationId`
+must equal the unlocking profile's `keyGenerationId`, or the unlock is refused rather than
+attempted. `ProfileAuthenticatorLock` is selected by matching `authenticatorId`.
 
 `VaultService.ListCommits(vaultId, latestCommitId?, latestFirstCommitId?, forceLocks)` returns the vault's
 `newer_commits[]` plus the caller's `profile_lock` / `admin_profile_lock` (a `VaultProfileLock`). Profiles

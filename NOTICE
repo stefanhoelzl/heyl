@@ -1,0 +1,20 @@
+heyl
+Copyright 2026 Stefan Hoelzl
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+heyl is an UNOFFICIAL client. It is not affiliated with, authorised by, endorsed by,
+or supported by heylogin. "heylogin" is a trademark of its respective owner and is used
+here only to describe what this software interoperates with.
+
+This project is an independent reimplementation of heylogin's client protocol, created
+for interoperability. It contains no source code from heylogin's own clients.
+
+Please do not report heylogin service issues to this project, and do not expect vendor
+support for it.

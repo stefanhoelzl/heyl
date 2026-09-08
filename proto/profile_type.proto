@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package domain;
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+enum ProfileType {
+  PROFILE_TYPE_UNKNOWN = 0;
+  PROFILE_TYPE_PREFERENCES = 1;
+  PROFILE_TYPE_INBOX = 2;
+  PROFILE_TYPE_PRIVATE = 3;
+  PROFILE_TYPE_ORGANIZATION = 4;
+  PROFILE_TYPE_ORGANIZATION_ADMIN = 5;
+  PROFILE_TYPE_ORGANIZATION_SERVICE = 6;
+}
+

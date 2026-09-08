@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package domain;
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message PingRequest {
+}
+
+message PingResponse {
+}
+
+service HealthService {
+  rpc Ping(PingRequest) returns (PingResponse) {}
+}
+

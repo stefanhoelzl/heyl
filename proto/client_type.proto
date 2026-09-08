@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package domain;
+
+option java_package = "app.heylogin.android.proto";
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+option objc_class_prefix = "HPA";
+
+enum ClientType {
+  CLIENT_TYPE_UNKNOWN = 0;
+  CLIENT_TYPE_TEST = 1;
+  CLIENT_TYPE_WEB = 100;
+  CLIENT_TYPE_AND = 200;
+  CLIENT_TYPE_IOS = 210;
+  CLIENT_TYPE_EXT = 300;
+  CLIENT_TYPE_EXT_IOS = 301;
+  CLIENT_TYPE_CLI = 400;
+  CLIENT_TYPE_BAK = 401;
+  CLIENT_TYPE_BAE_AUDITLOG = 500;
+}
+

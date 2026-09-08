@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package domain;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "locks.proto";
+import "profile.proto";
+import "sync_update.proto";
+import "vault_service.proto";
+import "license_type.proto";
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message ListChildOrganizationsRequest {
+  string parent_organization_id = 1;
+  bool force_list_all = 2;
+}
+
+message ListChildOrganizationsResponse {
+  message ChildOrganization {
+    message User {
+      bool is_admin = 1;
+      bool is_not_connected = 2;
+      bool has_start_code = 3;
+      google.protobuf.Timestamp last_active_at = 4;
+    }
+
+    message DelegatedAdmin {
+      string profile_id = 1;
+      string parent_organization_profile_id = 2;
+      string personal_vault_id = 3;
+    }
+
+    message LicenseViaMsp {
+      google.protobuf.Timestamp contract_start_date = 1;
+      google.protobuf.Timestamp contract_end_date = 2;
+      int32 license_count = 3;
+    }
+
+    message LicenseNone {
+      google.protobuf.Timestamp trial_end_date = 1;
+    }
+
+    message LicenseExample {
+    }
+
+    string id = 1;
+    string name = 2;
+    repeated ListChildOrganizationsResponse.ChildOrganization.User users = 4;
+    repeated ListChildOrganizationsResponse.ChildOrganization.DelegatedAdmin delegated_admins = 5;
+    google.protobuf.Timestamp created_at = 6;
+    string parent_organization_metadata = 7;
+    SyncUpdateProfile admin_profile = 8;
+
+    oneof license {
+      ListChildOrganizationsResponse.ChildOrganization.LicenseNone none = 9;
+      ListChildOrganizationsResponse.ChildOrganization.LicenseViaMsp via_msp = 10;
+      ListChildOrganizationsResponse.ChildOrganization.LicenseExample example = 11;
+    }
+    reserved 3;
+  }
+
+  repeated ListChildOrganizationsResponse.ChildOrganization child_organizations = 1;
+  int32 delegated_admin_count_limit = 2;
+}
+
+message AddDelegatedAdminRequest {
+  string child_organization_id = 1;
+  string parent_organization_profile_id = 2;
+  ProfileData profile = 3;
+  ProfileProfileLock admin_profile_lock = 5;
+  reserved 4;
+  reserved 6;
+}
+
+message AddDelegatedAdminResponse {
+  SyncUpdate sync_update = 1;
+  string profile_id = 2;
+}
+
+message RemoveDelegatedAdminRequest {
+  string organization_id = 1;
+  string profile_id = 2;
+}
+
+message RemoveDelegatedAdminResponse {
+}
+
+message UpdateChildOrganizationRequest {
+  message LicenseUpdate {
+    message Trial {
+      bool extend = 1;
+    }
+
+    message ViaMsp {
+      int32 license_count = 1;
+    }
+
+
+    oneof type {
+      UpdateChildOrganizationRequest.LicenseUpdate.Trial trial = 1;
+      UpdateChildOrganizationRequest.LicenseUpdate.ViaMsp via_msp = 2;
+    }
+  }
+
+  string child_organization_id = 1;
+  google.protobuf.StringValue parent_organization_metadata = 9;
+  UpdateChildOrganizationRequest.LicenseUpdate license = 2;
+}
+
+message UpdateChildOrganizationResponse {
+  SyncUpdate sync_update = 1;
+}
+
+message ConvertChildOrganizationToIndependentRequest {
+  string organization_id = 1;
+}
+
+message ConvertChildOrganizationToIndependentResponse {
+}
+
+message AdoptChildOrganizationRequest {
+  string organization_id = 1;
+  string parent_organization_id = 2;
+  ProfileProfileLock admin_profile_lock = 3;
+}
+
+message AdoptChildOrganizationResponse {
+  SyncUpdate sync_update = 1;
+}
+
+service ChildOrganizationService {
+  rpc List(ListChildOrganizationsRequest) returns (ListChildOrganizationsResponse) {}
+  rpc AddDelegatedAdmin(AddDelegatedAdminRequest) returns (AddDelegatedAdminResponse) {}
+  rpc RemoveDelegatedAdmin(RemoveDelegatedAdminRequest) returns (RemoveDelegatedAdminResponse) {}
+  rpc Update(UpdateChildOrganizationRequest) returns (UpdateChildOrganizationResponse) {}
+  rpc ConvertToIndependent(ConvertChildOrganizationToIndependentRequest) returns (ConvertChildOrganizationToIndependentResponse) {}
+  rpc Adopt(AdoptChildOrganizationRequest) returns (AdoptChildOrganizationResponse) {}
+}
+

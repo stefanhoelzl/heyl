@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package domain;
+
+import "vault_message_type.proto";
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message ShowInboxRequest {
+  string slug = 1;
+  bool as_owner = 2;
+}
+
+message ShowInboxResponse {
+  message OrganizationData {
+    string name = 1;
+    string icon = 2;
+  }
+
+  string vault_id = 1;
+  string generation_id = 2;
+  bytes public_key = 3;
+  string metadata = 4;
+  ShowInboxResponse.OrganizationData organization_data = 5;
+  string url = 6;
+  string base_url = 7;
+}
+
+message CreateLoginInboxMessageRequest {
+  string vault_id = 1;
+  string generation_id = 2;
+  VaultMessageType type = 3;
+  bytes encrypted_data = 4;
+}
+
+message CreateLoginInboxMessageResponse {
+  string inbox_message_id = 1;
+}
+
+service LoginInboxService {
+  rpc Show(ShowInboxRequest) returns (ShowInboxResponse) {}
+  rpc CreateMessage(CreateLoginInboxMessageRequest) returns (CreateLoginInboxMessageResponse) {}
+}
+

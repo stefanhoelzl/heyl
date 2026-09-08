@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package domain;
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message AuthenticatorReply {
+
+  oneof reply_oneof {
+    EncryptedSecretAuthenticatorReply encrypted_secret_reply = 1;
+  }
+}
+
+message EncryptedSecretAuthenticatorReply {
+  bytes encrypted_secret = 1;
+  bool registration = 2;
+}
+

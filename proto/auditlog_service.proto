@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package domain;
+
+import "google/protobuf/timestamp.proto";
+import "auditlog_event_type.proto";
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message WriteEventsRequest {
+  message Event {
+    string event_json = 1;
+    google.protobuf.Timestamp client_time = 2;
+    google.protobuf.Timestamp last_known_server_time = 3;
+  }
+
+  repeated WriteEventsRequest.Event events = 1;
+}
+
+message WriteEventsResponse {
+  repeated string event_ids = 1;
+}
+
+message ListEventsRequest {
+  message MatchAnyFilter {
+    repeated string profile_ids = 1;
+    repeated string target_profile_ids = 5;
+    repeated string vault_ids = 2;
+    repeated string login_ids = 3;
+    string filter_ip_prefix = 4;
+  }
+
+  google.protobuf.Timestamp time_anchor = 1;
+  int32 page = 2;
+  google.protobuf.Timestamp from_time = 3;
+  google.protobuf.Timestamp to_time = 4;
+  repeated AuditlogEventType event_types = 5;
+  repeated string filter_profile_ids = 6;
+  repeated string filter_target_profile_ids = 11;
+  repeated string filter_vault_ids = 7;
+  repeated string filter_login_ids = 8;
+  string filter_ip_prefix = 10;
+  ListEventsRequest.MatchAnyFilter additional_filter = 9;
+}
+
+message ListEventsResponse {
+  repeated string enveloped_event_json = 1;
+  int64 total_count = 2;
+  google.protobuf.Timestamp time_anchor = 3;
+}
+
+service AuditlogService {
+  rpc WriteEvents(WriteEventsRequest) returns (WriteEventsResponse) {}
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse) {}
+}
+

@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package domain;
+
+import "sync_update.proto";
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message StreamingSyncRequest {
+}
+
+message LongPollSyncRequest {
+}
+
+message SyncRequest {
+  string fcm_message_id = 1;
+}
+
+message SyncResponse {
+  SyncUpdate sync_update = 1;
+}
+
+service SyncService {
+  rpc StreamingSync(StreamingSyncRequest) returns (stream SyncResponse) {}
+  rpc LongPollSync(LongPollSyncRequest) returns (SyncResponse) {}
+  rpc Sync(SyncRequest) returns (SyncResponse) {}
+}
+

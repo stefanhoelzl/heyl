@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package domain;
+
+import "user_confirmation_type.proto";
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message UserConfirmationData {
+  UserConfirmationType type = 1;
+  string vaultId = 2;
+  string loginId = 3;
+  string profileId = 4;
+  string organizationId = 5;
+}
+

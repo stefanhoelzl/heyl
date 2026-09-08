@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package domain;
+
+option java_package = "app.heylogin.android.proto";
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+option objc_class_prefix = "HPA";
+
+enum AuthenticatorType {
+  AUTHENTICATOR_TYPE_UNKNOWN = 0;
+  AUTHENTICATOR_TYPE_PUSH = 1;
+  AUTHENTICATOR_TYPE_BACKUP_CODE = 2;
+  AUTHENTICATOR_TYPE_BACKUP_OS = 3;
+  AUTHENTICATOR_TYPE_DUMMY = 4;
+  AUTHENTICATOR_TYPE_SESSION_UNLOCK = 6;
+  AUTHENTICATOR_TYPE_WEBAUTHN = 7;
+  AUTHENTICATOR_TYPE_ORGANIZATION_SERVICE = 8;
+  reserved 5;
+}
+

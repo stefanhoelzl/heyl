@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package domain;
+
+import "google/protobuf/timestamp.proto";
+import "sync_update.proto";
+import "google/protobuf/wrappers.proto";
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message DeleteSessionRequest {
+  string session_id = 1;
+}
+
+message DeleteSessionResponse {
+  SyncUpdate sync_update = 1;
+}
+
+message CreateSessionUnlockRequest {
+  string session_id = 1;
+  bytes encrypted_secret = 2;
+  string authenticator_id = 3;
+  google.protobuf.Timestamp max_expires_at = 4;
+  reserved 5;
+}
+
+message CreateSessionUnlockResponse {
+  SyncUpdate sync_update = 1;
+}
+
+message DeleteSessionUnlockRequest {
+  string session_id = 1;
+  bool only_pending_request = 2;
+}
+
+message DeleteSessionUnlockResponse {
+  SyncUpdate sync_update = 1;
+}
+
+message RequestSessionUnlockRequest {
+  string source = 1;
+}
+
+message RequestSessionUnlockResponse {
+  SyncUpdate sync_update = 1;
+}
+
+message ExtendSessionUnlockRequest {
+  google.protobuf.Timestamp last_user_activity = 1;
+}
+
+message ExtendSessionUnlockResponse {
+  SyncUpdate sync_update = 1;
+}
+
+message UpdateSessionRequest {
+  message EnabledProfiles {
+    repeated string profile_ids = 1;
+  }
+
+  string session_id = 1;
+  repeated SyncUpdateField fields_to_update = 2;
+  google.protobuf.StringValue client_settings = 3;
+  UpdateSessionRequest.EnabledProfiles enabled_profiles = 4;
+  google.protobuf.UInt32Value unlock_time_limit_minutes = 9;
+  google.protobuf.StringValue fcm_device_token = 6;
+  google.protobuf.StringValue device_info = 7;
+  google.protobuf.StringValue apns_device_token = 8;
+  reserved 5;
+}
+
+message UpdateSessionResponse {
+  SyncUpdate sync_update = 1;
+}
+
+service SessionService {
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse) {}
+  rpc CreateSessionUnlock(CreateSessionUnlockRequest) returns (CreateSessionUnlockResponse) {}
+  rpc DeleteSessionUnlock(DeleteSessionUnlockRequest) returns (DeleteSessionUnlockResponse) {}
+  rpc RequestSessionUnlock(RequestSessionUnlockRequest) returns (RequestSessionUnlockResponse) {}
+  rpc ExtendSessionUnlock(ExtendSessionUnlockRequest) returns (ExtendSessionUnlockResponse) {}
+  rpc Update(UpdateSessionRequest) returns (UpdateSessionResponse) {}
+}
+

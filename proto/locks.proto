@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package domain;
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+message VaultProfileLock {
+  string locking_profile_id = 1;
+  string locking_profile_key_generation_id = 2;
+  bytes encrypted_storable_vault_key = 3;
+  bytes encrypted_high_security_vault_key = 4;
+  bytes encrypted_vault_message_private_key = 5;
+}
+
+message ProfileAuthenticatorLock {
+  string authenticator_id = 1;
+  bytes encrypted_high_security_profile_seed = 2;
+  bytes encrypted_storable_profile_seed = 3;
+  string profile_id = 4;
+  string profile_key_generation_id = 5;
+}
+
+message VaultLockCreationData {
+  string vault_id = 1;
+  string generation_id = 2;
+  VaultProfileLock lock = 3;
+  string associated_vault_id = 4;
+  string associated_generation_id = 5;
+  VaultProfileLock associated_lock = 6;
+}
+
+message ProfileProfileLock {
+  string locking_profile_id = 1;
+  string locking_profile_key_generation_id = 2;
+  bytes encrypted_high_security_profile_seed = 3;
+  bytes encrypted_storable_profile_seed = 4;
+  string profile_id = 5;
+  string profile_key_generation_id = 6;
+}
+

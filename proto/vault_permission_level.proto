@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package domain;
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+enum VaultPermissionLevel {
+  VAULT_PERMISSION_LEVEL_UNKNOWN = 0;
+  VAULT_PERMISSION_LEVEL_READ_ONLY = 1;
+  VAULT_PERMISSION_LEVEL_READ_WRITE = 2;
+  VAULT_PERMISSION_LEVEL_ADMIN = 3;
+}
+

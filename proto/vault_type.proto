@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package domain;
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+enum VaultType {
+  VAULT_TYPE_UNKNOWN = 0;
+  VAULT_TYPE_META = 1;
+  VAULT_TYPE_PRIVATE = 2;
+  VAULT_TYPE_TEAM = 3;
+  VAULT_TYPE_TEAM_META = 4;
+  VAULT_TYPE_ORGANIZATION_PERSONAL = 6;
+  VAULT_TYPE_INBOX = 7;
+  VAULT_TYPE_INBOX_META = 8;
+  VAULT_TYPE_ORGANIZATION_ADMIN = 9;
+  VAULT_TYPE_ORGANIZATION_LOGIN_SUMMARY = 10;
+  reserved 5;
+}
+

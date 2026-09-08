@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package domain;
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+enum WebauthnPrfSupportStatus {
+  WEBAUTHN_PRF_SUPPORT_STATUS_UNKNOWN = 0;
+  WEBAUTHN_PRF_SUPPORT_STATUS_UNAVAILABLE = 1;
+  WEBAUTHN_PRF_SUPPORT_STATUS_AVAILABLE = 2;
+}
+

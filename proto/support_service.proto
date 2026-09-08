@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package domain;
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+enum SupportMessageType {
+  SUPPORT_MESSAGE_TYPE_UNKNOWN = 0;
+  SUPPORT_MESSAGE_TYPE_SUPPORT_FORM = 1;
+  SUPPORT_MESSAGE_TYPE_BETA_FEEDBACK = 2;
+  SUPPORT_MESSAGE_TYPE_CHANGE_BILLING_EMAIL = 3;
+  SUPPORT_MESSAGE_TYPE_UPDATE_MONITORED_DOMAINS = 4;
+  SUPPORT_MESSAGE_TYPE_NONPROFIT_REQUEST = 5;
+  SUPPORT_MESSAGE_TYPE_APP_LOGS = 6;
+  SUPPORT_MESSAGE_TYPE_WEBSITE_REPORT = 7;
+}
+
+enum ReportPageProblem {
+  REPORT_PAGE_PROBLEM_UNKNOWN = 0;
+  REPORT_PAGE_PROBLEM_OTHER = 1;
+  REPORT_PAGE_PROBLEM_DETECTION = 2;
+  REPORT_PAGE_PROBLEM_POSITION = 3;
+  REPORT_PAGE_PROBLEM_SUBMISSION = 4;
+  REPORT_PAGE_PROBLEM_AUTOFILL = 5;
+  REPORT_PAGE_PROBLEM_FORM = 6;
+  REPORT_PAGE_PROBLEM_PASSKEY = 7;
+}
+
+message SendMessageRequest {
+  message Attachment {
+    string filename = 1;
+    bytes data = 2;
+    string mime_type = 3;
+  }
+
+  string subject = 1;
+  string message = 2;
+  string profile_id = 4;
+  SupportMessageType type = 5;
+  repeated SendMessageRequest.Attachment attachments = 6;
+  reserved 3;
+}
+
+message SendMessageResponse {
+}
+
+message ReportPageRequest {
+  string url = 1;
+  ReportPageProblem problem = 2;
+  string comment = 3;
+  string screenshot = 4;
+  bool has_login = 5;
+  bool has_hide_secrets_login = 6;
+  string page_source = 7;
+  bool has_shadow_root = 8;
+}
+
+message ReportPageResponse {
+}
+
+service SupportService {
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse) {}
+  rpc ReportPage(ReportPageRequest) returns (ReportPageResponse) {}
+}
+

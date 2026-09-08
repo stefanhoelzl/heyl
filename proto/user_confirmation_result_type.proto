@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package domain;
+
+option java_package = "app.heylogin.android.proto";
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+option objc_class_prefix = "HPA";
+
+enum UserConfirmationResultType {
+  USER_CONFIRMATION_RESULT_TYPE_OPEN = 0;
+  USER_CONFIRMATION_RESULT_TYPE_ACCEPTED = 1;
+  USER_CONFIRMATION_RESULT_TYPE_REJECTED = 2;
+}
+

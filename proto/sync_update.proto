@@ -1,0 +1,296 @@
+syntax = "proto3";
+
+package domain;
+
+import "achievements.proto";
+import "authenticator_type.proto";
+import "credential_type.proto";
+import "license_type.proto";
+import "locks.proto";
+import "unlock_time_limit.proto";
+import "maintenance_task.proto";
+import "primary_login_device.proto";
+import "profile_type.proto";
+import "session_type.proto";
+import "organization_type.proto";
+import "vault_member_sync_mode.proto";
+import "vault_type.proto";
+import "webauthn_prf_support_status.proto";
+import "role.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "gitlab.com/cotechde/monorepo/backend/domain/pb";
+
+enum SyncUpdateField {
+  SU_UNKNOWN = 0;
+  SU_USER = 1;
+  SU_SESSIONS = 2;
+  SU_VAULTS = 3;
+  SU_ACHIEVEMENTS = 4;
+  SU_CHANNELS = 5;
+  SU_ORGANIZATIONS = 6;
+  SU_RELATED_PROFILES = 7;
+  SU_PROFILES = 8;
+  SU_MAINTENANCE_SETTINGS = 9;
+}
+
+enum SubscriptionError {
+  SUBSCRIPTION_ERROR_OK = 0;
+  SUBSCRIPTION_ERROR_TRIAL_EXCEEDED = 1;
+  SUBSCRIPTION_ERROR_PADDLE_PAUSED = 2;
+  SUBSCRIPTION_ERROR_DELINQUENT = 3;
+}
+
+message SyncUpdateProfile {
+  string id = 1;
+  ProfileType profile_type = 2;
+  string key_generation_id = 3;
+  string organization_id = 4;
+  bytes high_security_identity_sig_pub_key = 5;
+  bytes high_security_vault_key_enc_pub_key = 6;
+  bytes high_security_vault_key_enc_pub_key_signature = 7;
+  bytes high_security_profile_seed_enc_pub_key = 8;
+  bytes high_security_profile_seed_enc_pub_key_signature = 9;
+  bytes storable_sig_pub_key = 10;
+  bytes storable_sig_pub_key_signature = 11;
+  bytes storable_vault_key_enc_pub_key = 12;
+  bytes storable_vault_key_enc_pub_key_signature = 13;
+  bytes storable_profile_seed_enc_pub_key = 14;
+  bytes storable_profile_seed_enc_pub_key_signature = 15;
+  repeated ProfileAuthenticatorLock authenticator_locks = 16;
+  ProfileProfileLock profile_lock = 19;
+  string email = 17;
+  string unverified_email = 18;
+}
+
+message SyncUpdate {
+  message Session {
+    string id = 1;
+    google.protobuf.Timestamp last_used_at = 3;
+    google.protobuf.Timestamp unlocked_at = 4;
+    google.protobuf.Timestamp unlocked_until = 5;
+    google.protobuf.Timestamp unlock_requested_at = 6;
+    google.protobuf.Timestamp unlock_extend_at = 12;
+    google.protobuf.Timestamp created_at = 7;
+    SessionType session_type = 9;
+    string client_settings = 8;
+    repeated string enabled_profile_ids = 10;
+    UnlockTimeLimit unlock_time_limit = 11 [deprecated = true];
+    uint32 unlock_time_limit_minutes = 13;
+    reserved 2;
+  }
+
+  message Vault {
+    message Profile {
+      string id = 1;
+    }
+
+    string id = 1;
+    string commit_id = 2;
+    string generation_id = 3;
+    string associated_vault_id = 6;
+    string organization_id = 8;
+    repeated SyncUpdate.Vault.Profile profiles = 11;
+    VaultType vault_type = 5;
+    bool dirty = 19;
+    string profile_key_generation_id = 12;
+    string admin_profile_key_generation_id = 18;
+    bytes message_public_key = 15;
+    bool has_messages_queued = 16;
+    string inbox_slug = 17;
+    bool inbox_enabled = 20;
+    VaultMemberSyncMode member_sync_mode = 21;
+    string entra_group_id = 22;
+    repeated MaintenanceTask required_maintenance_tasks = 23;
+    bool regenerate_on_sync = 24;
+    reserved 4;
+    reserved 7;
+    reserved 9;
+    reserved 13;
+    reserved 10;
+    reserved 14;
+  }
+
+  message Channel {
+    string id = 1;
+    string channel_type = 2;
+  }
+
+  message SessionUnlock {
+    bytes encrypted_secret = 1;
+    string authenticator_id = 2;
+  }
+
+  message Authenticator {
+    string id = 1;
+    AuthenticatorType authenticator_type = 13;
+    bytes high_security_login_sig_pub_key = 3;
+    bytes high_security_identity_sig_pub_key = 4;
+    bytes high_security_profile_seed_enc_pub_key = 5;
+    bytes high_security_profile_seed_enc_pub_key_signature = 6;
+    bytes storable_sig_pub_key = 7;
+    bytes storable_sig_pub_key_signature = 8;
+    bytes storable_profile_seed_enc_pub_key = 9;
+    bytes storable_profile_seed_enc_pub_key_signature = 10;
+    string secret_info = 11;
+    bytes secret_salt = 12;
+    reserved 2;
+  }
+
+  message User {
+    message WebauthnCredential {
+      string webauthn_id = 7;
+      string aaguid = 2;
+      google.protobuf.Timestamp created_at = 3;
+      google.protobuf.Timestamp last_used_at = 4;
+      CredentialType credential_type = 5;
+      string session_id = 6;
+      WebauthnPrfSupportStatus prf_support_status = 8;
+      reserved 1;
+    }
+
+    string server_side_settings = 3;
+    bytes authenticator_block_hash = 4;
+    string preferred_locale = 6;
+    string preliminary_email = 8;
+    repeated SyncUpdate.User.WebauthnCredential webauthn_credentials = 9;
+    string user_client_settings = 10;
+    repeated string open_user_confirmation_ids = 11;
+    bool profiles_locked = 12;
+    reserved 1;
+    reserved 2;
+    reserved 5;
+    reserved 7;
+  }
+
+  message Organization {
+    message AdminInfo {
+      SyncUpdateProfile admin_profile = 9;
+      string entra_tenant_id = 6;
+      bool entra_prefer_user_principal_name = 13;
+      string entra_settings = 28;
+      google.protobuf.Timestamp entra_synchronized_at = 14;
+      bool csv_integration_active = 7;
+      bool google_workspace_integration_active = 8;
+      google.protobuf.Timestamp trial_end_date = 10;
+      LicenseType license_type = 11;
+      string parent_organization_admin_profile_id = 12;
+      string billing_organization_id = 15;
+      reserved 2;
+      reserved 3;
+      reserved 4;
+    }
+
+    message ParentOrganizationInfo {
+      string id = 1;
+      string name = 2;
+      string icon = 3;
+      string metadata = 4;
+    }
+
+    message LoginSummaryVaultInfo {
+      string id = 1;
+      string generation_id = 2;
+      bytes message_public_key = 3;
+    }
+
+    string id = 1;
+    OrganizationType organization_type = 20;
+    repeated SyncUpdate.OrganizationProfile profiles = 10;
+    string name = 3;
+    string icon = 4;
+    bool restrict_personal_logins = 19;
+    bool auditlog_enable = 14;
+    bool role_management_enable = 35;
+    bool child_organization_management_enable = 21;
+    bool service_user_enable = 29;
+    bool monitoring_enable = 36;
+    string password_policy = 23;
+    UnlockTimeLimit unlock_time_limit = 26;
+    bool is_preliminary = 13;
+    bool is_delegated_admin = 24;
+    bool profile_child_organization_management_show = 32;
+    string role_id = 33;
+    string super_user_id = 7;
+    string admin_profile_id = 16;
+    SyncUpdate.Organization.AdminInfo admin_info = 15;
+    SubscriptionError subscription_error = 11;
+    string verified_domain = 17;
+    string client_settings = 25;
+    SyncUpdate.Organization.ParentOrganizationInfo parent_organization_info = 27;
+    repeated MaintenanceTask required_maintenance_tasks = 28;
+    string entra_user_id = 30;
+    SyncUpdate.Organization.LoginSummaryVaultInfo login_summary_vault_info = 31;
+    repeated Role roles = 34;
+    reserved 2;
+    reserved 12;
+    reserved 22;
+    reserved 5;
+    reserved 6;
+    reserved 8;
+    reserved 9;
+    reserved 18;
+  }
+
+  message OrganizationProfile {
+    string profile_id = 1;
+    bool is_not_connected = 4;
+    bool is_delegated_admin = 14;
+    bool is_service = 15;
+    bool child_organization_management_show = 17;
+    string role_id = 18;
+    string personal_vault_id = 8;
+    string preliminary_user_id = 5;
+    string start_code = 9;
+    google.protobuf.Timestamp start_code_generated_at = 10;
+    google.protobuf.Timestamp start_code_email_sent_at = 11;
+    PrimaryLoginDevice primary_login_device = 12;
+    google.protobuf.Timestamp last_active_at = 13;
+    string entra_user_id = 16;
+    google.protobuf.Timestamp start_code_expired_at = 19;
+    reserved 2;
+    reserved 3;
+    reserved 6;
+    reserved 7;
+  }
+
+  message RelatedProfile {
+    string id = 1;
+    string email = 2;
+  }
+
+  message PreliminaryProfile {
+    string id = 1;
+    string email = 2;
+    string organization_id = 3;
+  }
+
+  message MaintenanceSettings {
+    repeated MaintenanceTask allowed_tasks = 1;
+  }
+
+  google.protobuf.Timestamp server_time = 7;
+  int64 sync_version = 15;
+  bool token_refresh_needed = 21;
+  bool client_outdated = 22;
+  google.protobuf.Timestamp leaked_passwords_change_time = 23;
+  repeated SyncUpdateField updated_fields = 11;
+  SyncUpdate.SessionUnlock session_unlock = 4;
+  SyncUpdate.User user = 8;
+  repeated SyncUpdate.Session sessions = 1;
+  repeated SyncUpdate.Vault vaults = 2;
+  repeated Achievement achievements = 6;
+  repeated SyncUpdate.Channel channels = 3;
+  repeated SyncUpdate.Organization organizations = 13;
+  repeated SyncUpdate.RelatedProfile related_profiles = 18;
+  repeated SyncUpdateProfile profiles = 17;
+  SyncUpdate.MaintenanceSettings maintenance_settings = 19;
+  repeated SyncUpdate.PreliminaryProfile preliminary_profiles = 20;
+  reserved 9;
+  reserved 10;
+  reserved 5;
+  reserved 12;
+  reserved 14;
+  reserved 16;
+}
+

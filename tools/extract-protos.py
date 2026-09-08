@@ -64,6 +64,7 @@ import json
 import pathlib
 import re
 import shutil
+import importlib
 import subprocess
 import sys
 import urllib.request
@@ -143,6 +144,14 @@ CALL = re.compile(r'fileDesc\(\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+)\s*(?:,\s*\[([
 STR = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
+def _wkt_descriptor(path: str) -> d.FileDescriptorProto:
+    """The protobuf runtime's own FileDescriptorProto for a well-known type."""
+    mod = importlib.import_module("google.protobuf." + pathlib.PurePosixPath(path).stem + "_pb2")
+    fd = d.FileDescriptorProto()
+    fd.ParseFromString(mod.DESCRIPTOR.serialized_pb)
+    return fd
+
+
 def stage_descriptors(work: pathlib.Path, out: pathlib.Path) -> pathlib.Path:
     """protoc-gen-es strips FileDescriptorProto.dependency and passes the imported GenFile
     consts as fileDesc()'s 2nd argument instead. Rebuilding that list is essential: without it
@@ -177,7 +186,7 @@ def stage_descriptors(work: pathlib.Path, out: pathlib.Path) -> pathlib.Path:
             return "google/protobuf/" + const[len("file_google_protobuf_"):] + ".proto"
         sys.exit(f"unresolved dependency const: {const}")
 
-    fds, wkt = d.FileDescriptorSet(), set()
+    own, wkt = [], set()
     for name in sorted(raw_by_file):
         fd = d.FileDescriptorProto()
         fd.ParseFromString(raw_by_file[name])
@@ -187,12 +196,23 @@ def stage_descriptors(work: pathlib.Path, out: pathlib.Path) -> pathlib.Path:
             fd.dependency.append(r)
             if r.startswith("google/protobuf/"):
                 wkt.add(r)
-        fds.file.append(fd)
+        own.append(fd)
+
+    # Naming the well-known types is not enough: a descriptor set that declares
+    # google/protobuf/timestamp.proto as a dependency but does not contain it is exactly
+    # what `protoc --include_imports` exists to prevent. Rust codegen (buffa via
+    # connectrpc-build, prost via tonic-prost-build) resolves types from the set alone and
+    # fails on the first unresolved name -- ".google.protobuf.Timestamp not found". Embed
+    # the runtime's own copies, ahead of the files that import them.
+    fds = d.FileDescriptorSet()
+    for path in sorted(wkt):
+        fds.file.append(_wkt_descriptor(path))
+    fds.file.extend(own)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(fds.SerializeToString())
-    log(f"descriptors: {len(fds.file)} files, {sum(len(f.dependency) for f in fds.file)} deps "
-        f"recovered, wkt={sorted(wkt)} -> {out}")
+    log(f"descriptors: {len(own)} files, {sum(len(f.dependency) for f in own)} deps recovered, "
+        f"+{len(wkt)} embedded well-known types {sorted(wkt)} -> {out}")
     return out
 
 
@@ -375,11 +395,15 @@ def stage_render(binpb: pathlib.Path, out: pathlib.Path) -> pathlib.Path:
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.proto"):
         old.unlink()
-    for fd in fds.file:
+    # The set embeds the well-known types so codegen can resolve them (see stage_descriptors),
+    # but they are protoc's files, not heylogin's -- rendering them would put a second copy of
+    # timestamp.proto on protoc's include path during `verify`.
+    rendered = [fd for fd in fds.file if not fd.name.startswith("google/protobuf/")]
+    for fd in rendered:
         f = out / fd.name
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(_render(fd))
-    log(f"render: {len(fds.file)} .proto files -> {out}")
+    log(f"render: {len(rendered)} .proto files -> {out}")
     return out
 
 
@@ -417,8 +441,9 @@ def stage_verify(work: pathlib.Path, binpb: pathlib.Path, proto: pathlib.Path) -
         s.ParseFromString(p.read_bytes())
         return {f.name: f for f in s.file}
 
-    orig = load(binpb)
-    rt = {k: v for k, v in load(roundtrip).items() if not k.startswith("google/protobuf/")}
+    skip = lambda k: k.startswith("google/protobuf/")
+    orig = {k: v for k, v in load(binpb).items() if not skip(k)}
+    rt = {k: v for k, v in load(roundtrip).items() if not skip(k)}
     bad = 0
     if set(orig) != set(rt):
         log(f"verify: FILE SET MISMATCH {set(orig) ^ set(rt)}")

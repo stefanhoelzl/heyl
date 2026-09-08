@@ -1,0 +1,24 @@
+### request
+POST /api/v1/domain.SyncService/Sync HTTP/1.1
+host: heylogin.app
+content-type: application/grpc-web+proto
+client-type: 400
+client-version: 0.1.0
+
+# body (gRPC-Web frame: 1 flag byte + 4-byte BE length + message; empty message)
+00 00 00 00 00 
+
+### response
+HTTP/2 200 
+access-control-expose-headers: Date, Content-Type, Grpc-Status, Vary, Grpc-Message, Grpc-Status-Details-Bin, grpc-status, grpc-message
+alt-svc: h3=":443"; ma=2592000
+content-type: application/grpc-web+proto
+grpc-message: missing credentials
+grpc-status: 16
+grpc-status-details-bin: CBASE21pc3NpbmcgY3JlZGVudGlhbHMaiAIKJnR5cGUuZ29vZ2xlYXBpcy5jb20vZG9tYWluLkRvbWFpbkVycm9yEt0BCJTrARoZQ291bGQgbm90IGlkZW50aWZ5IGNsaWVudCKpAUEgcmVxdWVzdCB0byB0aGUgc2VydmVyIGlzIG1pc3NpbmcgYSBwcm9vZiBvZiBpZGVudGl0eS4gV2UgYXJlIGludmVzdGlnYXRpbmcuIEluIHRoZSBtZWFudGltZSwgbWFrZSBzdXJlIHlvdSBhcmUgdXNpbmcgdGhlIGxhdGVzdCB2ZXJzaW9uIG9mIG91ciBzb2Z0d2FyZSB0aGVuIHRyeSBhZ2Fpbi4qEHdTaFFJMUJLT3NFdzluZDQ
+vary: Origin
+via: 1.1 Caddy
+date: Tue, 08 Sep 2026 22:18:20 GMT
+
+# body
+(empty)

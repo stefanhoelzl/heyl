@@ -57,6 +57,23 @@ Transport is `@connectrpc/connect-web` `createGrpcWebTransport` (content-type
 `client-type` (`domain.ClientType`: WEB=100, AND=200, IOS=210, EXT=300, CLI=400, …), `client-version`,
 optional `client-id`, `sync-version`.
 
+**Verified against the live backend, 2026-09-08.** gRPC-Web is not merely what the clients use —
+it is the only protocol served. `application/proto` and `application/connect+proto` return
+**415**; `application/grpc` returns **505**; `application/grpc-web+proto` and
+`application/grpc-web+json` return 200. HTTP/1.1 is accepted, so HTTP/2 is not required.
+
+`client-type` is **mandatory** and validated against the enum: omitted, `999` or `abc` all yield
+`grpc-status: 13` with `DomainError` 10400 `BAD_REQUEST`. `CLIENT_TYPE_CLI = 400` is accepted.
+`client-version` is not validated on unauthenticated methods — `0.0.0`, empty and
+`not-a-version` all pass, and `CLIENT_OUTDATED` (10426) never fires; whether an authenticated
+method gates on it is untested.
+
+Errors are trailers-only: `grpc-status`, `grpc-message`, and `grpc-status-details-bin` — base64
+(standard alphabet, unpadded) of a `google.rpc.Status` whose `details[0]` is an `Any` of
+`domain.DomainError {code, user_title, user_detail, request_id}`. Absent credentials give
+status 16 / code 30100 "Could not identify client"; rejected ones give status 7 / code 30420
+"Invalid credentials". Recorded exchanges: `tests/fixtures/protocol/`.
+
 ---
 
 ## 2. Cryptographic primitives (`lib-vault-crypto`)

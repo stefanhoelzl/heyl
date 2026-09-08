@@ -1,0 +1,21 @@
+### request
+POST /api/v1/domain.HealthService/Ping HTTP/1.1
+host: heylogin.app
+content-type: application/grpc-web+proto
+client-type: 400
+client-version: 0.1.0
+
+# body (gRPC-Web frame: 1 flag byte + 4-byte BE length + message; empty message)
+00 00 00 00 00 
+
+### response
+HTTP/2 200 
+access-control-expose-headers: Date, Content-Type, Vary, grpc-status, grpc-message
+alt-svc: h3=":443"; ma=2592000
+content-type: application/grpc-web+proto
+vary: Origin
+via: 1.1 Caddy
+date: Tue, 08 Sep 2026 22:18:20 GMT
+
+# body
+00 00 00 00 00 80 00 00 00 10 67 72 70 63 2d 73 74 61 74 75 73 3a 20 30 0d 0a 

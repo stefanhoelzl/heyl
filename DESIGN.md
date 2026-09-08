@@ -1,7 +1,7 @@
 # heyl — Design
 
 A third-party command-line client for heylogin, in Rust, built against the protobuf schema in
-`proto/` and the protocol specification in `HEYLOGIN_SPEC.md`.
+`descriptors/heylogin.binpb` and the protocol specification in `HEYLOGIN_SPEC.md`.
 
 Decisions marked **⚠ PROPOSED** were not settled in the design interview; they are my
 recommendation and are open for revision. Everything else is decided.
@@ -152,8 +152,8 @@ in error messages, and never passed as command-line arguments to child processes
 
 ```
 heyl/
-├── proto/                    53 .proto files, verified lossless
-├── descriptors/              heylogin.binpb (FileDescriptorSet)
+├── descriptors/              heylogin.binpb — the sole committed schema artifact
+├── tests/fixtures/protocol/  recorded gRPC-Web exchanges (M0)
 ├── tools/extract-protos.py   regeneration + round-trip verification
 └── crates/
     ├── heyl-proto/       generated types + service clients
@@ -195,26 +195,74 @@ Two adapters exist on every platform regardless of OS:
 Consequence: adding Windows is implementing five traits, not editing the client. That is the
 whole point of the boundary, and it is why M11 is sized S rather than a rewrite.
 
-### Transport — ⚠ PROPOSED
+### Transport — decided at M0, empirically
 
-`connectrpc` 0.9.x — the first-party Rust implementation of the Connect protocol, which speaks
-Connect, gRPC **and** gRPC-Web from one client and passes the full conformance suite (3,600
-server / 6,872 client tests). The backend is a Go ConnectRPC server, so this is the same
-protocol family validated against the same suite.
+**gRPC-Web is the only protocol the backend speaks.** Probed directly against
+`https://heylogin.app/api/v1`:
 
-The whole surface is reachable over gRPC-Web: of 123 methods, **122 are unary and one is
-server-streaming** (`SyncService.StreamingSync`) — zero client-streaming, zero bidi.
+| content-type | result |
+|---|---|
+| `application/grpc-web+proto` | **200, `grpc-status: 0`** |
+| `application/grpc-web+json` | 200 |
+| `application/proto`, `application/connect+proto` | **415** — Connect is not served |
+| `application/grpc` | **505** — rejected at the edge |
 
-Because it is pre-1.0 and the backend's protocol tolerance is unverified, transport sits behind
-a trait with a `--transport connect|grpc-web` escape hatch. Fallback if `connectrpc` disappoints:
-`tonic` + `tonic-web`'s `GrpcWebClientLayer`, which supports native (non-wasm) clients.
+So the previously proposed transport trait and `--transport connect|grpc-web` escape hatch are
+both **dropped**: they hedged an unsettled choice, and a flag offering Connect would offer a
+setting that always fails. HTTP/1.1 works, so there is no HTTP/2 requirement.
 
-**M0 resolves this empirically** — see §7.
+**Request metadata.** `client-type` is **mandatory and validated against the `ClientType`
+enum** — omit it, or send `999` or `abc`, and every call returns `grpc-status: 13` with
+`DomainError` 10400 `BAD_REQUEST`. `client-type: 400` (`CLIENT_TYPE_CLI`) is accepted, so no
+impersonation of `CLIENT_TYPE_WEB` is needed. `client-version` is *not* validated on
+unauthenticated methods (`0.0.0`, empty and `not-a-version` all pass; `CLIENT_OUTDATED` never
+fired) — whether an authenticated method gates on it is still unknown and needs an account. A
+custom `user-agent` and a `sync-version` header are both accepted.
 
-Request metadata: `authorization: backend <token>`, `client-type: 400` (`CLIENT_TYPE_CLI`,
-already reserved in the enum), `client-version`, `sync-version`.
+We send our own crate version and identify ourselves honestly:
+`client-type: 400`, `client-version: <crate version>`,
+`user-agent: heyl/<version> (+<repo url>)`.
 
-### Crypto crates — ⚠ PROPOSED
+**Errors.** Responses are trailers-only, carrying `grpc-status`, `grpc-message` and
+`grpc-status-details-bin` — base64 (standard alphabet, unpadded) of a `google.rpc.Status` whose
+`details[0]` is an `Any` of `domain.DomainError {code, user_title, user_detail, request_id}`.
+`domain.Status` in `errors.proto` is structurally identical to `google.rpc.Status`, so the
+schema decodes its own error envelope with no extra dependency. The backend distinguishes
+absent credentials (status 16, `DomainError` 30100) from rejected ones (status 7, 30420).
+Four exchanges are recorded in `tests/fixtures/protocol/`.
+
+**Codegen stack — measured, not assumed.** M0 built the whole surface twice, at full parity.
+Both stacks consume `descriptors/heylogin.binpb` directly (`connectrpc_build::Config::
+descriptor_set`, `tonic_prost_build::compile_fds`); **neither needs `protoc` or `buf`, and
+neither ever reads a `.proto` file.** Both generated all 19 service clients and all 123 method
+paths, both compiled with zero warnings, both round-tripped `Ping` and decoded
+`DomainError{30100}`, and both encoded a nested `SyncUpdate` to the identical 120 bytes.
+
+| | `connectrpc` 0.9 + `buffa` | `tonic` 0.14 + `prost` |
+|---|---|---|
+| codegen | 5,272 ms | **218 ms** |
+| clean release build | 51.9 s | **39.0 s** |
+| rebuild after schema change | 20.6 s | **6.0 s** |
+| stripped binary | 6.80 MB | **3.99 MB** |
+| generated code | 199,289 lines | **10,838 lines** |
+| `grpc-status-details-bin` | decoded natively into `ErrorDetail` | raw bytes; ~10 lines to decode |
+| maturity | pre-1.0 | widely deployed |
+
+**Decision: `tonic` + `prost` + `tonic-web`'s `GrpcWebClientLayer`.** This reverses the earlier
+proposal. `connectrpc`'s headline advantage — a first-party implementation that passes the
+Connect conformance suite — is moot, because the backend does not serve Connect; we use only
+gRPC-Web, which `tonic-web` speaks too. Its one real remaining advantage, native error-detail
+decoding, is worth about ten lines. Against that, `tonic` generates 18× less code, regenerates
+24× faster, and produces a 41% smaller binary, on a far more mature dependency.
+
+Two things to get right, both found the hard way at M0:
+
+- `tonic`'s generated code assumes the `transport` feature — which pulls in a *server* and
+  `axum` — unless codegen is configured with `.build_transport(false)`.
+- `rustls` sees both `ring` and `aws-lc-rs` through the dependency graph, so the process-level
+  `CryptoProvider` must be installed explicitly or TLS panics on first use.
+
+### Crypto crates — decided at M0
 
 | Need (§2) | Crate |
 |---|---|
@@ -228,8 +276,21 @@ already reserved in the enum), `client-version`, `sync-version`.
 | Zeroization | `zeroize`, `secrecy` |
 
 `dryoc` is chosen over RustCrypto's `nacl-compat` because §2 is specified as
-"libsodium-equivalent", so a libsodium-shaped API transcribes rather than reconstructs. All
-pure Rust — no OpenSSL, no C toolchain, clean static cross-compilation.
+"libsodium-equivalent", so a libsodium-shaped API transcribes rather than reconstructs.
+
+**Verified at M0.** All nine crates above compile together, and `cargo tree` over the whole
+graph contains no `cc`, no `cmake` and no `*-sys` crate — the "pure Rust" claim holds as
+stated. A `x86_64-unknown-linux-musl` build of that set links `static-pie` with no C toolchain
+present.
+
+**But the TLS layer breaks the claim, and it is worth being precise about where.** Both
+`ring` and `aws-lc-sys` are C projects driven by `cc`/`cmake`, and rustls pulls one or the
+other. A musl build of the *client* therefore fails with
+`failed to find tool "x86_64-linux-musl-gcc"`. So "clean static cross-compilation" is true of
+our crypto, and false of the binary as a whole: **M7's static musl artifacts need a musl C
+cross-toolchain** (`cargo-zigbuild` or `cross`), not merely `rustup target add`. This is a
+packaging requirement, not a code change — but it is the kind of thing that is much cheaper to
+know now than during a release.
 
 ### FIDO2 / WebAuthn login (M9)
 
@@ -295,11 +356,11 @@ allowed edges:
 
 | Crate | May depend on | Must **not** depend on |
 |---|---|---|
-| `heyl-proto` | `connectrpc`, `prost`-equivalent codegen output | any other `heyl-*` |
+| `heyl-proto` | `tonic`, `tonic-web`, `prost`, `prost-types` | any other `heyl-*` |
 | `heyl-crypto` | `dryoc`, `*-dalek`, `argon2`, `sha2`, `hmac`, `zeroize`, `secrecy` | any runtime, any transport, any other `heyl-*` |
 | `heyl-vault` | `heyl-crypto`, `serde_json`, `snap`, `jiff`, `uuid` | any runtime, any transport, `heyl-proto` |
 | `heyl-ports` | trait plumbing only (`async-trait`, `secrecy`) | every adapter and every other `heyl-*` |
-| `heyl-client` | `heyl-proto`, `heyl-crypto`, `heyl-vault`, `heyl-ports`, `tokio` | **`heyl-platform`** |
+| `heyl-client` | `heyl-proto`, `heyl-crypto`, `heyl-vault`, `heyl-ports`, `tokio`, `hyper`, `rustls` | **`heyl-platform`** |
 | `heyl-platform` | `heyl-ports`, `keyring`, `directories`, `crossterm`, `rpassword`, `qr2term`, `ctap-hid-fido2` | `heyl-client` |
 | `heyl-cli` | everything — this is the only crate that wires adapters into the client | — |
 
@@ -334,6 +395,8 @@ endorsement; everything here gets pinned.
 | **CLI tests** | `assert_cmd`, `predicates` | — | Exit codes and the stdout/stderr contract of §5. |
 | **Property tests** | `proptest` | 1.x | heymerge round-trip fidelity. |
 | **Packaging** | `cargo-dist` | 0.32 | Cross-platform binaries + installers for M7. |
+| **TLS roots** | `rustls-platform-verifier` | 0.6 | OS trust store — matches what heylogin's browser-based clients do, and survives TLS-inspecting corporate proxies. |
+| **Async runtime** | `tokio` | 1.x | `current_thread` flavour: measured ~650 µs cheaper per invocation than `multi_thread`, identical binary size. |
 
 #### Two of these are load-bearing, not conveniences
 
@@ -366,7 +429,7 @@ real work rather than delegation. Sequence M9 before M11 and treat that as its k
 
 | Channel | Artifact | Compiles on user's machine? |
 |---|---|---|
-| GitHub Releases | static binary per target + curl installer | no |
+| GitHub Releases | static binary per target + curl installer (musl needs a C cross-toolchain — see §4) | no |
 | npm | platform packages via `optionalDependencies`, wrapping the same binary | no |
 | PyPI | platform-tagged wheels via `maturin`, wrapping the same binary | no |
 | crates.io | source | **yes** |
@@ -374,10 +437,12 @@ real work rather than delegation. Sequence M9 before M11 and treat that as its k
 One build feeds the first three; `cargo-dist` produces them. crates.io is the odd one out and
 the only one that imposes constraints on the codebase:
 
-- **`protoc` must not be a build-time requirement.** `cargo install heyl` runs `build.rs` on the
-  user's machine. Generated protobuf code is therefore **committed**, regenerated only behind an
-  explicit `just codegen` / feature flag — never during a normal build. `tools/extract-protos.py`
-  already verifies regeneration is lossless, so committed output is safe to trust.
+- **`protoc` is not a build-time requirement, and generated code is not committed.**
+  `tonic_prost_build::compile_fds` reads `descriptors/heylogin.binpb` directly, so `build.rs`
+  needs nothing on `PATH`. M0 measured the cost of generating at build time: 218 ms of codegen
+  inside a 39 s clean release build — noise. Committing 10,838 lines of generated Rust to save
+  0.2 s would trade a large diff on every schema bump for nothing, so the descriptor set stays
+  the only committed artifact.
 - **Publishing `heyl` means publishing all seven workspace crates**, since `cargo publish`
   rejects path dependencies without versions. Automate with `release-plz`; mark the six library
   crates as internal with no API-stability guarantee in their READMEs.
@@ -522,7 +587,7 @@ actually released.
 
 | # | Milestone | Exit criterion | Size |
 |---|---|---|---|
-| **M0** | **Transport spike** — codegen from `descriptors/`, `connectrpc` wired up | `HealthService.Ping` round-trips against `heylogin.app/api/v1`; protocol choice settled empirically | S |
+| **M0** | ✅ **Codegen viability spike** — both stacks built at full parity from `descriptors/`, protocol settled empirically | Done: gRPC-Web confirmed sole protocol; `CLIENT_TYPE_CLI` accepted; 19/19 services and 123/123 methods generated by both stacks with zero warnings; `Ping` and `DomainError{30100}` verified live; `tonic` chosen on measured criteria | M |
 | **M1** | **Crypto core** — §2 primitives, `deriveSecretFromSeed`, all context salts, key hierarchy | KAT suite green; fixed seed → stable keys | M |
 | **M2** | **Recovery-code login** — `CreateChallenge`→`CreateTokens`, Argon2id seed, `SecretStore` port | `heyl login --recovery-code` yields a usable token | M |
 | **M3** | **Read path** — `Sync`, `ListCommits`, profile/vault unlock, serialize + heymerge parse | `heyl list` and `get --field password` work against a real account | **L** |
@@ -535,8 +600,8 @@ actually released.
 | **M10** | **Device-to-device unlock** — `RequestSessionUnlock` + Sync polling + cancel-on-abort | An unlocked browser session can unlock the CLI; no phone needed | S |
 | **M11** | **Windows support** — implement the five ports for Windows; no changes above `heyl-platform` | Same test suite green on Windows CI | S |
 
-**Critical path: M0 → M1 → M2 → M3.** M3 is the milestone that proves the whole reverse
-engineering is correct; everything after it is addition rather than risk. M4 and M5 can proceed
+**Critical path: ~~M0~~ → M1 → M2 → M3.** M0 is done. M3 is the milestone that proves the whole
+reverse engineering is correct; everything after it is addition rather than risk. M4 and M5 can proceed
 in parallel with M6 once M3 lands.
 
 The first genuinely useful build is **M3** — read-only, recovery-code login, no phone flow.
@@ -551,8 +616,10 @@ the core, which is the intent behind the port boundary.
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Backend rejects an unofficial client (`client-type`, `client-version` checks) | Medium | Discovered at M0 (the spike exists to answer this). `CLIENT_TYPE_CLI = 400` already exists, which is encouraging but not a guarantee. |
-| `connectrpc` pre-1.0 API churn | Medium | Pinned version; transport trait; `tonic` fallback is real and tested. |
+| ~~Backend rejects an unofficial client~~ | **Closed** | Probed at M0: `client-type: 400` is accepted and `client-version` is not validated. Not a risk. |
+| `tonic` / `tonic-web` API churn | Low | `tonic` is mature and widely deployed. `connectrpc` was built at full parity during M0 and works, so a switch back is a known quantity rather than a hope. |
+| Static musl artifacts need a C cross-toolchain | Medium | Found at M0: `ring`/`aws-lc-sys` are C. M7 uses `cargo-zigbuild` or `cross`; not a code change, but it must be in the release pipeline from the start. |
+| gRPC-Web streaming (`StreamingSync`, `LongPollSync`) from a native client is untested | Medium | **M0 did not retire this.** It is M4's exposure; retire it early in M4 rather than at the end. |
 | A context salt or KDF detail is subtly wrong | Medium | Fails loudly (decryption fails), not silently. M1's KAT suite is the guard. |
 | heymerge entry shape wrong → app misreads the device | Low | Single entry, exclusively-owned key, validated against the app's rendering at M5. |
 | WebAuthn PRF salt transform missed → silently wrong seed | High if unguarded | Replicate `SHA-256("WebAuthn PRF" ‖ 0x00 ‖ salt)`; cross-check against a browser-derived seed at M9. |

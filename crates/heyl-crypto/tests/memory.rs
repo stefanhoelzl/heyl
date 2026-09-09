@@ -130,7 +130,10 @@ fn dropping_a_secret_leaves_its_neighbours_locked() {
 
     // Enough to be confident two of them share a page: ~56 fit in 4 KiB.
     let mut secrets: Vec<Seed> = (0u8..64).map(|i| Seed::from_bytes(&[i; 32])).collect();
-    let Some(survivor) = secrets.last() else {
+    // The one `truncate(1)` below keeps -- watching any other would be watching
+    // memory this test is about to free, which glibc leaves mapped and musl
+    // hands straight back to the kernel.
+    let Some(survivor) = secrets.first() else {
         unreachable!("just built 64")
     };
     let watched = survivor.expose_secret().as_ptr() as usize;

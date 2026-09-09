@@ -104,6 +104,14 @@ heyl-proto    = { version = "0.0.0", path = "crates/heyl-proto" }
 heyl-grpc     = { version = "0.0.0", path = "crates/heyl-grpc" }
 heyl-platform = { version = "0.0.0", path = "crates/heyl-platform" }
 
+# tonic-web 0.14.6 drops gRPC-Web trailers when they arrive in the same buffer
+# as the final data frame, which makes any response over roughly 4 KiB fail with
+# "missing grpc-status trailer". One-line fix in vendor/tonic-web; see its
+# README. To be sent upstream -- and note a `[patch]` does **not** reach anyone
+# installing `heyl` from crates.io, so this cannot be the answer past M8.
+[patch.crates-io]
+tonic-web = { path = "vendor/tonic-web" }
+
 [profile.release]
 lto       = true
 strip     = true

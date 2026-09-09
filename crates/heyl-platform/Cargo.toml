@@ -22,7 +22,15 @@ keyring     = { workspace = true }
 rand_core   = { workspace = true }
 rpassword   = { workspace = true }
 thiserror   = { workspace = true }
+zeroize     = { workspace = true }
 
+# `rlimit` is the only genuinely unix-only dependency here: `RLIMIT_CORE` has no
+# Windows equivalent, and `process.rs` already carries the `cfg(not(unix))` arm
+# that says so.
+#
+# `zeroize` was gated alongside it, which was simply wrong -- `keychain.rs` and
+# `terminal.rs` use `Zeroizing` unconditionally, so this crate did not compile
+# for any Windows target at all. Nothing caught it until the cross-platform
+# matrix in .github/workflows/ci.yml started building those targets.
 [target.'cfg(unix)'.dependencies]
 rlimit      = { workspace = true }
-zeroize     = { workspace = true }

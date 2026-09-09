@@ -1,0 +1,4 @@
+{
+  "timeout.total": 15,
+  "timeout.ci": 10
+}

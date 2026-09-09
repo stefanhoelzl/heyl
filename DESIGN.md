@@ -420,14 +420,32 @@ Rust" claim holds as stated. `libc` is present and permitted: it is an FFI *decl
 with no C source and no build script needing a compiler. This is now enforced rather than
 observed — see the `cargo-deny` ban in §6.
 
-**But the TLS layer breaks the claim, and it is worth being precise about where.** Both
-`ring` and `aws-lc-sys` are C projects driven by `cc`/`cmake`, and rustls pulls one or the
-other. A musl build of the *client* therefore fails with
-`failed to find tool "x86_64-linux-musl-gcc"`. So "clean static cross-compilation" is true of
-our crypto, and false of the binary as a whole: **M7's static musl artifacts need a musl C
-cross-toolchain** (`cargo-zigbuild` or `cross`), not merely `rustup target add`. This is a
-packaging requirement, not a code change — but it is the kind of thing that is much cheaper to
-know now than during a release.
+**The TLS layer used to break the claim; at M2 it stopped.** rustls has no cryptography of its
+own — it takes a `CryptoProvider` — and both of the usual ones are C projects driven by
+`cc`/`cmake`. M0 measured that, accepted `ring`, and recorded the consequence: a musl build of
+the *client* fails with `failed to find tool "x86_64-linux-musl-gcc"`, so M7's static artifacts
+would need a musl C cross-toolchain (`cargo-zigbuild` or `cross`) rather than merely
+`rustup target add`.
+
+M2 removed the exception instead of documenting it, because it was the first milestone whose
+graph actually contained TLS and therefore the first time CI could see the contradiction — the
+`cargo-deny` ban in §6 states the rule unconditionally, and `ring` failed it. The provider is
+now **`rustls-graviola`**: pure Rust plus assembly from the [s2n-bignum] project that is
+formally proven to implement the operation it claims, written by rustls' own author, and
+depending on nothing but `cfg-if` and `getrandom`. `cargo tree` over the whole graph contains
+no `cc` and no `cmake`, on every target we ship. So "clean static cross-compilation" is now true
+of the binary as a whole, and the ban needs no wrapper exception.
+
+**What that costs, stated plainly.** graviola is young — its own README says "this project is
+very new, so exercise due caution" — and it is `x86_64` and `aarch64` only, with CPU-feature
+floors: `aes/ssse3/avx/avx2/adx/bmi2/pclmulqdq` on x86_64 (roughly 2014 and later) and
+`aes/sha2/pmull/neon` on aarch64, **which excludes Raspberry Pi 4 and earlier**. That is a real
+narrowing for a tool §2 expects to run on headless boxes, and it is the reason the choice is
+recorded here rather than left in a manifest. It is also contained: this provider secures the
+transport to heylogin and nothing else. Every secret heyl handles is protected by heylogin's own
+end-to-end crypto in `heyl-crypto` (RustCrypto), which no TLS provider touches.
+
+[s2n-bignum]: https://github.com/awslabs/s2n-bignum
 
 ### FIDO2 / WebAuthn login (M9)
 
@@ -515,7 +533,8 @@ Enforce it in CI with a `cargo tree`-based check so a violation fails the build 
 relying on review to catch a new dependency line. `cargo-deny` carries the complementary bans:
 no `cc`, no `cmake`, no `*-sys` crate (with `libc` explicitly allowed), so M0's measured "pure
 Rust" property is an invariant rather than an observation, and a dependency bump that quietly
-introduces a C toolchain fails the build.
+introduces a C toolchain fails the build. `[graph] targets` scopes all of it to the platforms §7
+ships, so the check reasons about the binaries we build rather than about every target Rust has.
 
 `unsafe_code = "forbid"` is declared once in `[workspace.lints]`; each crate opts in with
 `[lints] workspace = true`, so a crate that omits it is visible in its own manifest rather than
@@ -825,7 +844,8 @@ the core, which is the intent behind the port boundary.
 |---|---|---|
 | ~~Backend rejects an unofficial client~~ | **Closed** | Probed at M0: `client-type: 400` is accepted and `client-version` is not validated. Not a risk. |
 | `tonic` / `tonic-web` API churn | Low | `tonic` is mature and widely deployed. `connectrpc` was built at full parity during M0 and works, so a switch back is a known quantity rather than a hope. |
-| Static musl artifacts need a C cross-toolchain | Medium | Found at M0: `ring`/`aws-lc-sys` are C. M7 uses `cargo-zigbuild` or `cross`; not a code change, but it must be in the release pipeline from the start. |
+| ~~Static musl artifacts need a C cross-toolchain~~ | **Closed** | Found at M0 (`ring`/`aws-lc-sys` are C), retired at M2 by taking rustls' `CryptoProvider` from `rustls-graviola` instead. No `cc` or `cmake` on any shipped target, so `rustup target add` is enough. The new exposure is graviola itself — see §4. |
+| graviola is a young TLS provider, and excludes pre-~2014 x86 and Raspberry Pi 4 and earlier | Medium | Adopted at M2 to keep §4's pure-Rust claim true of the whole binary. Written by rustls' author over formally-verified s2n-bignum assembly, and it secures only the transport — the vault crypto is `heyl-crypto`. Revisit if a user reports an unsupported CPU, or if `ring` ever ships a pure-Rust build. |
 | gRPC-Web streaming (`StreamingSync`, `LongPollSync`) from a native client is untested | Medium | **M0 did not retire this.** It is M4's exposure; retire it early in M4 rather than at the end. |
 | A context salt or KDF detail is subtly wrong | Medium | **M1's suite is *not* the guard** — a mistyped context yields stable, self-consistent, wrong keys and the suite stays green. The guard is M2: `CreateTokens` acceptance confirms the login limb, and M2's single vault decrypt confirms the profile/vault limb. Per-link snapshots make the failure name the link. |
 | heymerge entry shape wrong → app misreads the device | Low | Single entry, exclusively-owned key, validated against the app's rendering at M5. |

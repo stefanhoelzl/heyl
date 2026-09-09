@@ -209,7 +209,7 @@ pub fn recording_client(
 {
     use tower::Layer as _;
 
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    let _ = rustls_graviola::default_provider().install_default();
     let tls = <rustls::ClientConfig as rustls_platform_verifier::ConfigVerifierExt>::
         with_platform_verifier()
         .map_err(|e| format!("TLS config: {e}"))?;

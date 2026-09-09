@@ -36,6 +36,7 @@ http-body-util = { workspace = true }
 hyper-rustls   = { workspace = true }
 hyper-util     = { workspace = true }
 rustls         = { workspace = true }
+rustls-graviola = { workspace = true }
 rustls-platform-verifier = { workspace = true }
 serde          = { workspace = true }
 tonic          = { workspace = true }

@@ -146,11 +146,12 @@ impl GrpcClient {
     /// Never: the `CryptoProvider` install is allowed to lose a race with
     /// another installer, which is why its result is discarded.
     pub fn new(config: GrpcConfig) -> Result<Self, ApiError> {
-        // `rustls` sees both `ring` and `aws-lc-rs` through the dependency
-        // graph, so the process-level provider must be installed explicitly or
-        // TLS panics on first use (found the hard way at M0 -- DESIGN.md §4).
+        // rustls has no built-in provider here: both of its usual ones are C
+        // projects that `deny.toml` bans, so `rustls-graviola` supplies it and
+        // the process-level install has to be explicit or TLS panics on first
+        // use (found the hard way at M0 -- DESIGN.md §4).
         // A lost race means somebody else installed one first, which is fine.
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let _ = rustls_graviola::default_provider().install_default();
 
         // The OS trust store, which is what heylogin's browser-based clients
         // use and what survives a TLS-inspecting corporate proxy.

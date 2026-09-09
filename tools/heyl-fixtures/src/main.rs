@@ -53,6 +53,21 @@ enum Command {
         #[arg(long)]
         authenticator: Option<String>,
 
+        /// Do not attach a self-granted session unlock.
+        ///
+        /// `finishChallenge` always sends one, but it is the part of the
+        /// request most likely to be handled differently per client type.
+        #[arg(long)]
+        no_unlock: bool,
+
+        /// Flip a bit in the signature before sending it.
+        ///
+        /// A control: if a corrupt signature draws a *well-formed* credential
+        /// error where the correct one does not, then verification is being
+        /// reached and the correct signature is passing it.
+        #[arg(long)]
+        corrupt_signature: bool,
+
         /// Try only this session type, by name (e.g. `backup-code`).
         ///
         /// The full sweep is five requests. When the question is narrower than
@@ -75,6 +90,17 @@ enum Command {
     /// login attempt and cannot trip the backend's rate limiting. Run this
     /// before probing anything.
     Describe,
+
+    /// Open a phone-swipe login channel and print the QR URL.
+    ///
+    /// Establishes whether the long-poll path — the flow production actually
+    /// uses — is reachable from `CLIENT_TYPE_CLI`. The call blocks until a
+    /// phone completes the channel, so a hang is the *success* signal.
+    ProbeLongPoll {
+        /// The `client-type` header to send.
+        #[arg(long, default_value = heyl_grpc::CLIENT_TYPE_CLI)]
+        client_type: String,
+    },
 
     /// Re-key a real account's data into a committed fixture.
     Rekey {
@@ -106,16 +132,23 @@ fn main() -> std::process::ExitCode {
         Command::ProbeSigning {
             client_type,
             authenticator,
+            no_unlock,
+            corrupt_signature,
             only,
             delay,
         } => runtime.block_on(probe::run(
             &cli.endpoint,
             &client_type,
             authenticator.as_deref(),
+            no_unlock,
+            corrupt_signature,
             only.as_deref(),
             delay,
         )),
         Command::Describe => runtime.block_on(probe::describe(&cli.endpoint)),
+        Command::ProbeLongPoll { client_type } => {
+            runtime.block_on(probe::long_poll(&cli.endpoint, &client_type))
+        }
         Command::Rekey { out } => rekey::run(&out),
     };
 

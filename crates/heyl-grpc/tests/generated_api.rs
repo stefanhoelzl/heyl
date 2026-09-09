@@ -46,7 +46,7 @@ fn the_surface_is_every_rpc_in_the_schema() {
 
     // Names are qualified by service on purpose: `Update` appears on five
     // services, `List` on five, `Delete` on four.
-    let mut names: Vec<&str> = METHODS.iter().map(|(_, name)| *name).collect();
+    let mut names: Vec<&str> = METHODS.iter().map(|rpc| rpc.method).collect();
     names.sort_unstable();
     let before = names.len();
     names.dedup();
@@ -56,10 +56,20 @@ fn the_surface_is_every_rpc_in_the_schema() {
         "two RPCs generated the same method name"
     );
 
-    let mut paths: Vec<&str> = METHODS.iter().map(|(path, _)| *path).collect();
+    let mut paths: Vec<&str> = METHODS.iter().map(|rpc| rpc.path).collect();
     paths.sort_unstable();
     paths.dedup();
     assert_eq!(paths.len(), before);
+
+    // Exactly one streaming RPC, and it is server-streaming. The generator
+    // asserts on client-streaming rather than modelling it, so a schema that
+    // grew one would fail the build instead of generating a wrong signature.
+    let streaming: Vec<&str> = METHODS
+        .iter()
+        .filter(|rpc| rpc.streaming)
+        .map(|rpc| rpc.path)
+        .collect();
+    assert_eq!(streaming, ["/domain.SyncService/StreamingSync"]);
 }
 
 #[tokio::test]

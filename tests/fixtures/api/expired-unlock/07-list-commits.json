@@ -1,0 +1,33 @@
+{
+  "method": "/domain.VaultService/ListCommits",
+  "responses": [
+    {
+      "currentGenerationId": "7cc8dc81-351e-4470-8a53-8037bc563f00",
+      "newerCommits": [
+        {
+          "id": "035b1f9c-06a2-4a5a-8545-6df209ac60f8",
+          "blob": "PT09PT09PT09PT09PT09PT09PT09PT09nHA6MUD0//IXWZxiroaFT+/tSKI1HJ5hczlA8GnuPnPGa7gRBgRghN7vxkCgISvZSm0n3cvkUqvdysmsfesDJ2X6sD/tu+OijE5gV2Pq+Gr0x+QZ0I0x"
+        },
+        {
+          "id": "3eb60d24-0833-4d63-8fb1-60f4e0731468",
+          "blob": "Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+6NJbGHZfjl+Rm95u1m7MtZpXL31xNsPMjLs3f581QlV2geOue/n9gD85ACbObMsSbfCxr3n0x2R/Xd5Nhfu6EtjKS2wMq7zkbTmhofjNoWCBslxNwuQGHfzKrG18nke5G4nwY0OpBU/Qb6OGx8xpWlSKyYt1hDmnClZNnIJ7ka7g/dJ1y0fgTWFn9Lyfk9suwsMF/T5/Qbl9oOobCpJ8KYQIaODl/4j25n4WrVszdbFAe2PRwciFC5ImuXzGdT5OxmfwEfB774ehiTwCjAWBrWlR2/ji1dEc09bnB2M54RC2sxFpNkyEBeOHqbl54kxiMiOismP4tjgogEcQq9p0kOChCkaKcOsD3xLncnERHRLuiTMlMc02eF2Lu0jDx50xbeOmZD9lBnqrCR2PzQNVZjHbUctEVLYl0DpjkJZdfZKC3WJPvDvaXill6Uw1GLonl9GNjU7KTwZzV7r+UaQKFOsFV9KEay23fiFerIkSdDRJNfgAZnaDoiVGeZbXHNE/cqyl1/dvCk/v5P2jShUwZnkOWNfLUpb/mgkr0N58VjKmpuE5DDb/5rm7nUPbzr8KrVE2gxQwpyPiSmSxkA7+W6RTDSLqNrWmgJJ5DTgYZSn2gyvmO5WZjE4HL7hEhuI90Gey1lafpro453+KzoJp+8/OFFsAk0+ycIiqEN7UoC2StcjdOqaNmNcujW+COAKcXSq17fkGz9D1tg7nJ+zlcHkMXj90A9lwbC6w/UIUszzBBvoz9yaRwtICAuC9sGZM7TkFgmfg6wnzhojjOWlAhtRFChKpkikuy97H2+1y2XW6Goz77/n0SOsuDwP4j0nhf4JWj5DdmTOO8xmcUds0ArQK68+QhMwu8KxgihsU+lgkVo8T1e63IWAMS/CDZh877TqX9dcqucl8msIK/xljbDxywDbHn3A701CPDAS2SDdiUHsAcdLPnCGsJOHz5c7Sbyb6C/0N1Qls3xgcERs7CRaDHpF4EEJBkIrOAvHJXU2/mCa8dep9aXYFmVD7PmSf5wK0XerP06EypsEehBw8ti4JQuPBKgNUTn98ZHgbiGVGXBdV1Ym8QpNkju4JQm1V3esRFMi6VfGCege2cgMl1z1DfZ+fXoD24g=="
+        }
+      ],
+      "serverTime": "2026-09-09T10:23:59.999094979Z",
+      "firstCommitId": "035b1f9c-06a2-4a5a-8545-6df209ac60f8",
+      "profileLock": {
+        "lockingProfileId": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+        "lockingProfileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+        "encryptedStorableVaultKey": "Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Hz5wolt/Jc7Mx/4SIzeQVzyVCEs+D4+Ac40z5QptaUMMMYlVu9nbjH9NWsyu/v27Lx3GkRaiWFXz8BjjSxw0Usn6sS5UFcjn7fAcxS65gvc=",
+        "encryptedHighSecurityVaultKey": "PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8Q39GLFiolk+nGBZAGe49yqtgI9sznIV+zSoxpWuJ1U7ZgioIuOzf+L9399chpahYQAWmLCHePBcEgKP/Ll4mQ0VJi72jfVQHSlG5gb05/M8=",
+        "encryptedVaultMessagePrivateKey": "VMj+4ESHUXUmOwBaEX1bjImQWc7sYOMqGJB4Vbx9i3kw97YLFhv50wUjkSmtCaGjFgoYBbWAuWUbWv1IUiPL8cKaQk+fAqqb7u2c6Rbw845xBnhUIce2QdiE0vlSqT7TAAlvzNElOMw="
+      },
+      "messages": [],
+      "loginMaintenanceCriteria": {
+        "noLogin": false,
+        "leakedPasswordsMinChangeTime": "2026-06-23T14:23:14Z",
+        "loginSummaryMinVersion": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "method": "/domain.VaultService/ListCommits",
+  "responses": [
+    {
+      "currentGenerationId": "0a038bca-0d53-44fc-a724-648de340e3a7",
+      "newerCommits": [
+        {
+          "id": "5c59a6cc-b257-40df-b930-03b1c6e55f06",
+          "blob": "SEhISEhISEhISEhISEhISEhISEhISEhImLfTggiPP6aOP9SbNbYkk6ZesxOwEs+NgsP5SgXC83zX9EVEHdH74zqB63J1hilU9pE7DyO/8NNP/TFeMOBSD3US6xfIUkg="
+        }
+      ],
+      "serverTime": "2026-09-09T10:24:00.287822157Z",
+      "firstCommitId": "5c59a6cc-b257-40df-b930-03b1c6e55f06",
+      "profileLock": {
+        "lockingProfileId": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+        "lockingProfileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+        "encryptedStorableVaultKey": "RUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVF/y7kVgHsG2cxDHeQQEWFrmlzMe7hwfjPJBlzHB//PmswsGk9TXIG5L5fjgoHRM6Y9ziRhvpUe9yKLAZD/ZehimnyxRze91WzcO9BOUDYk4s=",
+        "encryptedHighSecurityVaultKey": "R0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHoop8RO3iV9Zk+/FWr/p9qKuzrnS5/ujXogeFQ1BOGnUygjWmUabH1GKWnVwmCqI2Wz3LQxgMjRBT0E7p7QVSpVClKaftSgOUyf2rZY8zjYs=",
+        "encryptedVaultMessagePrivateKey": "xIo245i5CoEgNlhNwteE8X+9G4mBNzihj8jX5jFmUhIAYDaEOztX/Ad50/VBI5es94pCRUU+ABje9QuGBJ5oT6Mx5ZZk70F/qeRqCxL3thY/N/79GYMWIXKTSy5g/tJtIgZMyVmfG30="
+      },
+      "messages": [],
+      "loginMaintenanceCriteria": {
+        "noLogin": true,
+        "loginSummaryMinVersion": 0
+      }
+    }
+  ]
+}

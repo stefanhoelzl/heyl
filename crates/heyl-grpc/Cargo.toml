@@ -16,7 +16,7 @@ workspace = true
 # descriptor pool it needs. Default-off so the release graph does not contain
 # `prost-reflect` at all -- DESIGN.md §4's pure-graph claim is checked with
 # `cargo tree`, and a feature is the only gate `cargo tree` agrees with.
-api = ["dep:prost-reflect", "dep:serde_json"]
+api = ["dep:prost-reflect", "dep:serde", "dep:serde_json"]
 
 [build-dependencies]
 prost       = { workspace = true }
@@ -39,6 +39,7 @@ hyper-util   = { workspace = true }
 prost        = { workspace = true }
 prost-types  = { workspace = true }
 prost-reflect = { workspace = true, optional = true }
+serde        = { workspace = true, optional = true }
 serde_json   = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
 rustls       = { workspace = true }
@@ -59,3 +60,7 @@ base64      = { workspace = true }
 async-trait = { workspace = true }
 heyl-proto  = { workspace = true }
 tokio       = { workspace = true, features = ["rt", "macros"] }
+bytes       = { workspace = true }
+http-body-util = { workspace = true }
+tonic-web   = { workspace = true }
+tower       = { workspace = true }

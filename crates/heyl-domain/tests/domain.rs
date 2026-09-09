@@ -329,3 +329,40 @@ fn identifiers_reject_non_uuids() {
     assert!(ProfileId::parse("not-a-uuid").is_err());
     assert!(ProfileId::parse("00000000-0000-4000-8000-0000000000ff").is_ok());
 }
+
+// -------------------------------------------------------------- session keys
+
+/// The session encryption key is **KDF-derived** from a random seed, not the
+/// random bytes used directly as an X25519 scalar.
+///
+/// `createUnsignedSessionKeys()` in the shipped client:
+/// ```js
+/// const secret = randomSeed();
+/// return deriveEncryptionKeyPair(secret, null, FIXED_INFO_SESSION_ENCRYPTION_KEY);
+/// ```
+///
+/// Using the bytes directly round-trips perfectly with itself, so nothing in
+/// M2 would notice — we seal to our own public key and open with our own
+/// private key. It diverges at M5, where the public half is published and
+/// signed, and at M10, where another session encrypts to it.
+#[test]
+fn the_session_key_goes_through_the_kdf_rather_than_being_raw_random() {
+    let seed = [0x3c; 32];
+    let derived = heyl_domain::session_encryption_key(&seed).expect("derives");
+    let raw = EncryptionPrivateKey::from_bytes(&seed);
+
+    assert_ne!(
+        derived.public_key().as_bytes(),
+        raw.public_key().as_bytes(),
+        "a raw scalar would work with itself and be wrong with everyone else"
+    );
+
+    // And it is the session context specifically, not some other one.
+    let expected =
+        EncryptionPrivateKey::derive(&seed, None, heyl_crypto::context::SESSION_ENCRYPTION)
+            .expect("derives");
+    assert_eq!(
+        derived.public_key().as_bytes(),
+        expected.public_key().as_bytes()
+    );
+}

@@ -92,10 +92,15 @@ pub async fn run(
 
     // Self-grant: seal the seed to a session key we generate now and store, so
     // a later invocation can recover it from Sync.
-    let session_key = ports.random.encryption_private_key();
+    //
+    // The session key is KDF-derived from a random seed, not the random bytes
+    // used directly as a scalar — see `heyl_domain::session_encryption_key`.
+    // The *ephemeral* sender key inside the seal is raw random, as heylogin's
+    // `asymEncrypt` does.
+    let session_key = heyl_domain::session_encryption_key(&ports.random.seed())?;
     let grant = SessionUnlockGrant {
         encrypted_secret: session_key.public_key().seal(
-            &ports.random.encryption_private_key(),
+            &ports.random.ephemeral_key(),
             &ports.random.nonce(),
             seed.expose_secret(),
         ),

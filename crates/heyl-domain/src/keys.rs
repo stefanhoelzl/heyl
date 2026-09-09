@@ -27,6 +27,36 @@ use crate::{
 // re-exported for callers writing `ProfileSeed<Storable>`
 pub use heyl_crypto::{HighSecurity, Storable};
 
+/// This session's encryption keypair, which the unlock grant is sealed to.
+///
+/// **Not a raw random scalar.** heylogin's `createUnsignedSessionKeys()` draws
+/// a random 32-byte seed and runs it through the KDF with the session
+/// encryption context:
+///
+/// ```js
+/// const secret = randomSeed();
+/// return deriveEncryptionKeyPair(secret, null, FIXED_INFO_SESSION_ENCRYPTION_KEY);
+/// ```
+///
+/// Using the random bytes directly as the scalar would round-trip perfectly
+/// with itself — we seal to our own public key and open with our own private
+/// key — so nothing in M2 would notice. It would diverge at M5, where the
+/// public half is published and signed, and at M10, where another session
+/// encrypts to it.
+///
+/// The ephemeral sender key inside `asymEncrypt` *is* a raw random keypair;
+/// only the session key goes through the KDF.
+///
+/// # Errors
+/// Propagates [`heyl_crypto::CryptoError`].
+pub fn session_encryption_key(seed: &[u8; 32]) -> Result<EncryptionPrivateKey, DomainError> {
+    Ok(EncryptionPrivateKey::derive(
+        seed,
+        None,
+        context::SESSION_ENCRYPTION,
+    )?)
+}
+
 /// The authenticator-level keys that need `secretSalt`.
 ///
 /// heylogin declares separate storable and high-security constants for both of

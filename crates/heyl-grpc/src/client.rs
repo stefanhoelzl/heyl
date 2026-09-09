@@ -127,7 +127,12 @@ impl GrpcClient {
         insert(meta, "user-agent", &self.config.user_agent)?;
 
         if let Some(token) = self.token.read().await.as_deref() {
-            insert(meta, "authorization", &format!("Bearer {token}"))?;
+            // `backend <token>`, **not** `Bearer <token>`. heylogin's scheme
+            // namespaces the credential by which service it is for, and the
+            // real client joins several with commas
+            // (`backend …,auditlog-write …`). Confirmed in the extension's
+            // `EspbServiceClientFactory.ts`; HEYLOGIN_SPEC §1 says so too.
+            insert(meta, "authorization", &format!("backend {token}"))?;
         }
         Ok(request)
     }

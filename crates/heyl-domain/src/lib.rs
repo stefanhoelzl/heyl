@@ -27,6 +27,7 @@ pub use error::DomainError;
 pub use ids::{AuthenticatorId, CommitId, KeyGenerationId, ProfileId, SessionId, VaultId};
 pub use keys::{
     AuthenticatorKeys, HighSecurity, ProfileSeed, ProtectedSecret, Storable, VaultSecret,
+    session_encryption_key,
 };
 pub use locks::{ProfileAuthenticatorLock, VaultProfileLock};
 pub use login::{ChallengeEncoding, login_signing_key, sign_challenge};

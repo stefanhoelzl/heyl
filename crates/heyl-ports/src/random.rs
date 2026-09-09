@@ -20,10 +20,22 @@ pub trait RandomSource: Send + Sync {
         Nonce::from_bytes(bytes)
     }
 
-    /// A fresh X25519 private key — this session's, or an ephemeral sender key.
-    fn encryption_private_key(&self) -> EncryptionPrivateKey {
+    /// A fresh **ephemeral** X25519 private key, for one `asymEncrypt`.
+    ///
+    /// heylogin's `asymEncrypt` generates a raw X25519 keypair per message
+    /// with no KDF, so this is a raw scalar. The *session* key is different —
+    /// it is KDF-derived; see [`heyl_domain::session_encryption_key`] and
+    /// [`RandomSource::seed`].
+    fn ephemeral_key(&self) -> EncryptionPrivateKey {
         let mut bytes = [0u8; heyl_crypto::asymmetric::KEY_LEN];
         self.fill(&mut bytes);
         EncryptionPrivateKey::from_bytes(&bytes)
+    }
+
+    /// A fresh 32-byte seed, to be run through a KDF by the caller.
+    fn seed(&self) -> zeroize::Zeroizing<[u8; 32]> {
+        let mut bytes = zeroize::Zeroizing::new([0u8; 32]);
+        self.fill(bytes.as_mut_slice());
+        bytes
     }
 }

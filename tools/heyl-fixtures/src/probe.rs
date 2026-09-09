@@ -204,21 +204,32 @@ async fn attempt(
         ));
     }
 
+    let granted = (!opts.no_unlock).then(|| unlock_grant(&seed));
+    let session_key = granted.as_ref().map(|(_, k)| k.clone());
+
     match api
         .create_tokens(
             authenticator_id,
             &challenge.challenge,
             &response,
             session_type,
-            if opts.no_unlock {
-                None
-            } else {
-                Some(unlock_grant(&seed).0)
-            },
+            granted.map(|(g, _)| g),
         )
         .await
     {
-        Ok(_) => Ok(("ACCEPTED".to_owned(), true)),
+        Ok(tokens) => {
+            // Print the credentials so the *whole* M2 flow can be run under
+            // this client type -- accepting a login proves only that
+            // CreateTokens answered, not that the session it minted works.
+            if let Some(key) = session_key {
+                eprintln!("\n  export HEYL_TOKEN='{}'", tokens.access_token);
+                eprintln!(
+                    "  export HEYL_SESSION_KEY='{}'",
+                    heyl_app::recovery::encode_key(&key)
+                );
+            }
+            Ok(("ACCEPTED".to_owned(), true))
+        }
         Err(e) => Ok((format!("rejected: {e}"), false)),
     }
 }
@@ -498,7 +509,7 @@ pub async fn long_poll(endpoint: &str, client_type: &str) -> Result<(), String> 
             eprintln!("  export HEYL_TOKEN='{}'", tokens.access_token);
             eprintln!(
                 "  export HEYL_SESSION_KEY='{}'",
-                heyl_app::login::encode_key(&key)
+                heyl_app::recovery::encode_key(&key)
             );
         }
         None => eprintln!(

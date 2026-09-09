@@ -127,19 +127,42 @@ impl Account {
         })
     }
 
+    /// The id of the push authenticator a recovery would disconnect.
+    pub fn push_authenticator_id() -> AuthenticatorId {
+        AuthenticatorId::parse(&uuid(0xaa, 2)).expect("valid")
+    }
+
     /// What `CreateChallenge` would return: no `secretSalt`, no public keys.
-    pub fn challenge(&self, challenge: &str) -> Challenge {
+    ///
+    /// `with_push` decides whether the account still has a phone attached —
+    /// i.e. whether a recovery has anything to destroy.
+    pub fn challenge_with(&self, challenge: &str, with_push: bool) -> Challenge {
+        let mut authenticators = vec![Authenticator {
+            id: self.authenticator_id,
+            authenticator_type: AuthenticatorType::BackupCode,
+            secret: self.recovery_secret(),
+            secret_salt: None,
+            public_keys: AuthenticatorPublicKeys::default(),
+        }];
+        if with_push {
+            authenticators.push(Authenticator {
+                id: Self::push_authenticator_id(),
+                authenticator_type: AuthenticatorType::Push,
+                secret: heyl_domain::AuthenticatorSecret::Opaque,
+                secret_salt: None,
+                public_keys: AuthenticatorPublicKeys::default(),
+            });
+        }
         Challenge {
             user_id: "test-user".to_owned(),
             challenge: challenge.to_owned(),
-            authenticators: vec![Authenticator {
-                id: self.authenticator_id,
-                authenticator_type: AuthenticatorType::BackupCode,
-                secret: self.recovery_secret(),
-                secret_salt: None,
-                public_keys: AuthenticatorPublicKeys::default(),
-            }],
+            authenticators,
         }
+    }
+
+    /// A challenge for an account with nothing left to disconnect.
+    pub fn challenge(&self, challenge: &str) -> Challenge {
+        self.challenge_with(challenge, false)
     }
 
     /// What `AuthenticatorService.List` would return: `secretSalt` and every

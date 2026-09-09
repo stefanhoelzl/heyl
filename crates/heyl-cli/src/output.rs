@@ -6,7 +6,7 @@
 //! either, in either format.
 
 use heyl_app::doctor::{Outcome, Report};
-use heyl_app::login::LoginOutcome;
+use heyl_app::recovery::RecoveryOutcome;
 
 /// How to render a report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -19,9 +19,12 @@ pub enum Format {
     Json,
 }
 
-/// Report a successful login.
-pub fn login(outcome: &LoginOutcome) {
-    eprintln!("Logged in as {}.", outcome.user_id);
+/// Report a completed recovery.
+///
+/// Says what was lost as well as what was gained: the user has a session, and
+/// no longer has whatever the recovery disconnected.
+pub fn recovery(outcome: &RecoveryOutcome) {
+    eprintln!("Recovered access to {}.", outcome.user_id);
     eprintln!("Session {} is registered.", outcome.session_id);
     match outcome.unlocked_until {
         Some(until) => eprintln!("Unlocked until {until} (the backend's value, not ours)."),
@@ -29,6 +32,18 @@ pub fn login(outcome: &LoginOutcome) {
             "The backend reported no unlock window; `heyl doctor` will say whether the grant took."
         ),
     }
+
+    if outcome.disconnected.is_empty() {
+        return;
+    }
+    eprintln!("\nDisconnected from the account:");
+    for d in &outcome.disconnected {
+        eprintln!("  {:?}  {}", d.kind, d.id);
+    }
+    eprintln!(
+        "\nPair a phone again to restore push access. That regenerates every profile and \
+         re-locks every vault,\nso this session's keys stop working once you do."
+    );
 }
 
 /// Report a hierarchy walk.

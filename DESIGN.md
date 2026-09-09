@@ -29,11 +29,45 @@ The reference points are `op read` and `pass show`, not a terminal UI for managi
 - **Read** every vault type that carries credentials.
 - **One write**, and only one: the CLI's own `SessionMetadata` entry in the META vault, so the
   session appears as a named, revocable device in the heylogin app (§7).
-- Login via **phone swipe (PUSH)** and **recovery code (BACKUP_CODE)**.
+- Login via **phone swipe (PUSH)**.
+- **One recovery command**, `heyl recovery` — not a login. See below.
 - Commands: `login`, `logout`, `list`, `get`, `totp`, `run`, `completion`, `session list|revoke`.
 
 **Scheduled, after the core is done (see §7):** WebAuthn / FIDO2 login (M9), device-to-device
 unlock (M10), Windows support (M11).
+
+#### `heyl recovery` is a recovery, not a login
+
+Earlier drafts listed a recovery-code login beside the phone swipe. It cannot be a *login*, for two
+reasons established against the live backend and corroborated by heylogin's own Security Whitepaper
+§6.5.4 — but it is worth having as an explicit, confirmed **recovery** command:
+
+1. **It is destructive.** Using a `BACKUP_CODE` authenticator makes the server *delete the push
+   authenticator and all its locks*, and restricts the resulting session to replacing the primary
+   authenticator. Recovering from that means re-pairing the phone, which regenerates every profile
+   and every `VaultProfileLock`. A password manager whose sign-in disconnects your phone is not a
+   password manager. We observed exactly this on the test account.
+2. **It is refused to a client that identifies as itself.** `CreateTokens` from a `BACKUP_CODE`
+   authenticator returns `DomainError 30460` for `CLIENT_TYPE_CLI`, `WEB` and `EXT`, and is
+   accepted only for the mobile client types.
+
+So the command exists, and it is named for what it does. `heyl recovery`:
+
+- **shows what it will disconnect** — `CreateChallenge` lists the account's authenticators before
+  anything is committed, by type and id (there is no name: authenticators carry no description
+  anywhere in the schema, and the friendly device names in heylogin's app are `SessionMetadata`
+  *session* names, held in an encrypted vault we cannot read until afterwards);
+- **asks, unless there is nothing to lose** — a second recovery, with the phone already gone, has
+  nothing left to destroy and must not train anyone to dismiss a warning;
+- **refuses when there is no terminal to ask at and no `--confirm`** — a destructive operation does
+  not proceed silently because nobody was there to object;
+- **says what was lost afterwards**, and that pairing a phone again regenerates every profile.
+
+The consequence for daily use is unchanged: **`heyl` has no unattended login.** A session's unlock
+expires the next day at 02:00 (and the server deletes the blob after 30 hours), so a headless box
+needs a human swipe roughly daily. `HeadlessSecretStore` covers headless *operation* between those
+points, not headless *login*. M10's device-to-device unlock is the path that would fix this without a
+phone in the loop each time. Recovery is not that path — each use costs a phone pairing.
 
 ### Out (non-goals)
 
@@ -99,6 +133,13 @@ once the unlock window has closed.
 Consequence, accepted deliberately: once the unlock expires, *every* command needs a swipe,
 including `list`. There is no locked-but-browsable state, because storable keys are not
 persisted either.
+
+**That is our choice, not a limit of the protocol.** heylogin's Security Whitepaper §6.4.3 is
+explicit that an unlocked session may persist the *storable* key pairs — `profileSeedEnc_s`,
+`vaultKeyEnc_s`, `sig_s` — which lets a locked client still decrypt `vaultKeyₛ` and read titles,
+usernames and websites (this is what the extension's on-page overlay uses). We decline, because
+persisting them puts long-lived key material on disk for a tool whose whole pitch is that the
+keychain holds nothing that decrypts anything. The cost is a swipe for `list`.
 
 ### Session registration
 
@@ -273,7 +314,17 @@ custom `user-agent` and a `sync-version` header are both accepted.
 
 We send our own crate version and identify ourselves honestly:
 `client-type: 400`, `client-version: <crate version>`,
-`user-agent: heyl/<version> (+<repo url>)`.
+`user-agent: heyl/<version> (+<repo url>)`, and a fresh `client-id` per invocation as the real
+clients do.
+
+**One recorded exception: `heyl recovery`'s `CreateTokens` sends `client-type: 200`.** heylogin
+refuses to mint a session from a `BACKUP_CODE` authenticator for any browser-family client type
+(`DomainError 30460`, for every session type including the proto3 zero) and accepts it from the
+mobile ones. The commitment above was written against *routine* traffic — the objection to
+impersonation is that a client would misstate itself on every request, forever. This is one call,
+on a command the user has explicitly confirmed, which exists because their phone is gone. It is
+scoped in `heyl-grpc` by session type, so `heyl-app` never learns that a client type exists, and
+every other request this client makes says `400`.
 
 **Errors.** Responses are trailers-only, carrying `grpc-status`, `grpc-message` and
 `grpc-status-details-bin` — base64 (standard alphabet, unpadded) of a `google.rpc.Status` whose
@@ -299,6 +350,13 @@ paths, both compiled with zero warnings, both round-tripped `Ping` and decoded
 | generated code | 199,289 lines | **10,838 lines** |
 | `grpc-status-details-bin` | decoded natively into `ErrorDetail` | raw bytes; ~10 lines to decode |
 | maturity | pre-1.0 | widely deployed |
+
+**`tonic-web` is vendored and patched.** Upstream 0.14.6 drops gRPC-Web trailers when they arrive in
+the same buffer as the final data frame, so any response over roughly 4 KiB fails with
+`missing grpc-status trailer` on a response that in fact arrived intact — confirmed by fetching the
+same request with `curl` and seeing a complete body. One line in `vendor/tonic-web`; see its README.
+**A `[patch.crates-io]` reaches our builds and not anyone installing from crates.io**, so before M8
+either upstream releases the fix or `heyl-grpc` stops relying on that decode path.
 
 **Decision: `tonic` + `prost` + `tonic-web`'s `GrpcWebClientLayer`.** This reverses the earlier
 proposal. `connectrpc`'s headline advantage — a first-party implementation that passes the
@@ -603,11 +661,23 @@ tool that runs unattended.
 references in the template into the child's environment. Secrets are passed via the environment
 of the spawned process only — never written to disk, never in argv, never in shell history.
 
-### QR rendering (M4)
+### QR rendering, and the SAS alternative (M4)
 
-QR is needed by exactly one flow — phone-swipe login. Recovery code (M2), FIDO2 (M9) and
-device-to-device unlock (M10) all need none. And once M10 lands, QR is a **once-per-machine
-onboarding step**, not a daily interaction, which caps how much polish it warrants.
+QR is needed by exactly one flow — phone-swipe login. FIDO2 (M9) and device-to-device unlock (M10)
+need none. And once M10 lands, QR is a **once-per-machine onboarding step**, not a daily
+interaction, which caps how much polish it warrants.
+
+**But the QR may be the wrong half of this flow to build.** heylogin's Compliance Whitepaper §4.4
+describes the pairing handshake as normally a QR scan, and then: *"As an alternative for devices
+without a camera, a hash-commitment procedure with Short Authentication String is used."* A terminal
+client is precisely a device without a camera — the QR here is a picture the *user's phone* scans off
+our screen, which works, but the SAS variant (`login/flow/pushAuthenticator.ts`, `symKeyToSas`) is
+the path heylogin designed for our situation and it adds mutual key confirmation the bare QR channel
+does not have.
+
+M4 should establish which of the two the phone actually accepts before committing to rendering
+polish. If SAS works, a short comparable string beats a 37×19 block of half-block characters on
+every terminal that has ever wrapped a line.
 
 The payload is not inherently graphical: per §5 of the protocol spec it is the URL
 `https://heylogin.app/qr/#<base64url(pubKey)>`, about 68 characters. The QR is merely a
@@ -637,11 +707,15 @@ it depends on terminal capabilities.
 
 ### Headless operation
 
-`login recovery` reads the code from `HEYL_RECOVERY_CODE`, a hidden prompt, or stdin — **never
+`heyl recovery` reads the code from `HEYL_RECOVERY_CODE`, a hidden prompt, or stdin — **never
 argv**, and there is deliberately no `--code` flag to spell it into `ps` output or shell history.
-It is a subcommand rather than a flag so that M4's `login push` and M9's `login webauthn` are
-siblings instead of mutually exclusive flags. The `--email` value is not secret and is an
-ordinary flag, falling back to `HEYL_EMAIL` and then a prompt. On a headless box with no
+It is a **top-level command, not under `login`**: it is not a sign-in, and a destructive operation
+must not be reachable by someone who thinks they are logging in. `--confirm` skips the question;
+`--email` is not secret and is an ordinary flag, falling back to `HEYL_EMAIL` and then a prompt.
+
+M4 introduces `heyl login push`, which is the first time a command called "login" means what the
+word means. There is no `heyl login` before then — a command that cannot work is worse than an
+absent one. On a headless box with no
 Secret Service, the `SecretStore` port is bound to `HeadlessSecretStore`, which reads
 `HEYL_TOKEN` / `HEYL_SESSION_KEY` from the environment — an adapter swap, not a special
 case threaded through the code.
@@ -661,7 +735,27 @@ not one-time, and it unlocks every vault).
 | heymerge round-trip | Property test: parse → serialize preserves unknown keys byte-for-byte | authoritative | No |
 | Protocol | Recorded request/response fixtures replayed against a **fake `HeylApi`** | authoritative | No |
 | Port adapters | Fake `SecretStore` / `Terminal` / `ProcessRunner` / `Clock` / `RandomSource`; the suite never touches a real keychain | — | No |
-| End-to-end | Throwaway account with a `DUMMY` authenticator, hidden `--dummy` login path | authoritative | Yes |
+| Wire replay | Recorded gRPC-Web **response bytes**, re-keyed, played through the real `heyl-grpc` | authoritative for mapping, error decoding, framing | No |
+| End-to-end, live | `tools/heyl-fixtures` against a real account — a **tool**, never a test | authoritative | Yes |
+
+**No automated test ever touches a real account.** The line is: tests replay recorded flows; only
+`tools/` talks to heylogin. A live confirmation is a deliberate act someone performs, never a test
+that could fire on its own — which keeps a standing master credential out of CI and keeps the suite
+green or red for reasons that are about the diff. The cost is that nothing automated notices when
+heylogin's behaviour drifts; only the next manual run does.
+
+**Recorded flows replay at the wire, not at the port.** The fixtures are re-keyed response *bytes*
+fed through the real adapter, because the two defects M2 actually shipped — a lock-mapping rule and
+reading `DomainError` from the wrong `tonic` API — both lived in `heyl-grpc`, and one of them passed
+green precisely because the test hand-built the `Status` the way the broken code read it. A
+port-level fake cannot catch either, by construction. `heyl-app`'s own use-case tests keep using a
+fake `HeylApi` with hand-built domain objects, where recorded bytes would only obscure things.
+
+**Nothing that is or verifies a secret is ever committed.** The re-key replaces, rather than
+redacts: the recovery code, the seed, `secretInfo.checksum` (it is `SHA512(seed)[:32]` — an offline
+*verifier*, and publishing one hands out an oracle), the access token, the session private key, and
+every blob that would decrypt to the seed under a committed key. The rule that makes it checkable:
+the fixture must open with the committed **test** seed and with nothing else.
 
 **The key-hierarchy row is weaker than the others, deliberately.** Nothing upstream covers
 heylogin's *composition* — which context string, concatenated in which order, truncated where — so
@@ -701,9 +795,9 @@ actually released.
 |---|---|---|---|
 | **M0** | ✅ **Codegen viability spike** — both stacks built at full parity from `descriptors/`, protocol settled empirically | Done: gRPC-Web confirmed sole protocol; `CLIENT_TYPE_CLI` accepted; 19/19 services and 123/123 methods generated by both stacks with zero warnings; `Ping` and `DomainError{30100}` verified live; `tonic` chosen on measured criteria | M |
 | **M1** | **Crypto core** — workspace + CI, `heyl-crypto` (§2 primitives, `deriveSecretFromSeed`, every context salt v1 needs) and `heyl-domain` (ids, locks, `Timestamp`, the full key hierarchy) | *proven*: primitives vs upstream vectors, Argon2id vs RFC 9106. *pinned*: every derivation snapshotted per link, regression-only until M2. *enforced*: dependency-graph rules, no `unsafe`, no `cc`/`cmake`/`*-sys`. *built*: full hierarchy, `mlock`ed secret newtypes | M |
-| **M2** | **Recovery-code login + hierarchy confirmation** — `CreateChallenge`→`CreateTokens` with a self-granted unlock, Argon2id seed, `SecretStore`/`Terminal` ports, then `heyl doctor` walks the chain | `heyl login recovery` yields a usable token, **and a separate `heyl doctor` invocation decrypts every vault** — confirming M1's key hierarchy against the backend both by decryption and by comparing every derived public key against the one heylogin publishes | **L** |
+| **M2** | ✅ **`heyl recovery` + hierarchy confirmation** — `heyl-proto`/`heyl-grpc`/`heyl-ports`/`heyl-app`/`heyl-vault`/`heyl-platform`/`heyl-cli`, a self-granted unlock, and `heyl doctor`. The login method changed under it: recovery-code login turned out to be destructive and client-type-gated (§2), so the confirmation was reached with the **phone swipe** | Done: the shipped binary recovers a real account, stores the session in the OS keychain, and a separate `heyl doctor` invocation reports **37 passed, 0 failed** — all eight derivation links across four profiles, each byte-compared against the key heylogin publishes, and all five vaults decrypted | **L** |
 | **M3** | **Read path** — full sync, profile/vault enumeration, serialize + heymerge parse, selector resolution | `heyl list` and `get --field password` work against a real account | **L** |
-| **M4** | **Phone swipe** — long-poll channel, QR in terminal, session self-unlock | `heyl login` with a phone; unlock survives to next day 02:00 | M |
+| **M4** | **Phone swipe** — long-poll channel, session self-unlock, and the pairing UX. Most of the mechanism already exists from M2: `GrpcClient::create_long_poll_channel_challenge` and the flow in `tools/heyl-fixtures`; M4 promotes it to `heyl login push` and adds the pairing surface | `heyl login push` with a phone; unlock survives to next day 02:00 | M |
 | **M5** | **Session registration** — `SessionMetadata` write, `logout` tombstone, `session list\|revoke` | CLI appears as a named device in the app and is revocable there | M |
 | **M6** | **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy | Full command set; `--format json` stable | M |
 | **M7** | **Distribution** — `cargo-dist` binaries (linux/macOS × x86_64/aarch64), npm optionalDependencies, PyPI wheels | `npx`, `uvx` and curl-installer all run the same artifact | M |

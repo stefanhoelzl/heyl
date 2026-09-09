@@ -11,7 +11,11 @@ mod fakes;
 
 use fakes::account::{Account, TEST_CODE};
 use fakes::{CountingRandom, FakeBackend, FixedClock, MemoryStore, ScriptedTerminal};
-use heyl_app::{AppError, Ports, doctor::Outcome, login::CodeSource};
+use heyl_app::{
+    AppError, Ports,
+    doctor::Outcome,
+    recovery::{CodeSource, Confirmation},
+};
 use heyl_domain::{ChallengeEncoding, Timestamp};
 use heyl_ports::{SecretKey, SecretStore as _, StoredSecret};
 use zeroize::Zeroizing;
@@ -73,7 +77,7 @@ impl Harness {
         );
         self.store.put(
             &SecretKey::default_slot(StoredSecret::SessionPrivateKey),
-            &heyl_app::login::encode_key(&self.account.session_key),
+            &heyl_app::recovery::encode_key(&self.account.session_key),
         );
     }
 }
@@ -81,9 +85,10 @@ impl Harness {
 #[tokio::test]
 async fn login_signs_the_challenge_and_stores_exactly_two_items() {
     let h = Harness::new(&[]);
-    let outcome = heyl_app::login::run(
+    let outcome = heyl_app::recovery::run(
         &h.ports(),
         "someone@example.com",
+        Confirmation::Granted,
         CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
         ChallengeEncoding::Utf8,
         heyl_domain::SessionType::BackupCode,
@@ -116,9 +121,10 @@ async fn login_signs_the_challenge_and_stores_exactly_two_items() {
 #[tokio::test]
 async fn the_recovery_code_can_come_from_the_terminal() {
     let h = Harness::new(&[TEST_CODE]);
-    heyl_app::login::run(
+    heyl_app::recovery::run(
         &h.ports(),
         "someone@example.com",
+        Confirmation::Granted,
         CodeSource::Ask("recovery code: "),
         ChallengeEncoding::Utf8,
         heyl_domain::SessionType::BackupCode,
@@ -133,9 +139,10 @@ async fn the_recovery_code_can_come_from_the_terminal() {
 #[tokio::test]
 async fn a_mistyped_code_is_rejected_before_create_tokens() {
     let h = Harness::new(&[]);
-    let err = heyl_app::login::run(
+    let err = heyl_app::recovery::run(
         &h.ports(),
         "someone@example.com",
+        Confirmation::Granted,
         CodeSource::Given(Zeroizing::new("1111-2222-3333-4444-5555-9999".to_owned())),
         ChallengeEncoding::Utf8,
         heyl_domain::SessionType::BackupCode,
@@ -159,9 +166,10 @@ async fn a_mistyped_code_is_rejected_before_create_tokens() {
 #[tokio::test]
 async fn signing_the_wrong_bytes_is_rejected() {
     let h = Harness::new(&[]);
-    let err = heyl_app::login::run(
+    let err = heyl_app::recovery::run(
         &h.ports(),
         "someone@example.com",
+        Confirmation::Granted,
         CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
         // The fake expects Utf8. Base64 decodes the same challenge into
         // entirely different bytes, and signs those.
@@ -203,9 +211,10 @@ async fn an_undecodable_challenge_rules_a_candidate_out_before_the_network() {
         random: &random,
     };
 
-    let err = heyl_app::login::run(
+    let err = heyl_app::recovery::run(
         &ports,
         "someone@example.com",
+        Confirmation::Granted,
         CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
         ChallengeEncoding::Base64,
         heyl_domain::SessionType::BackupCode,
@@ -333,9 +342,10 @@ async fn a_backend_refusal_is_surfaced_in_heylogins_own_words() {
         detail: "The session type reported by your client is invalid.".to_owned(),
     });
 
-    let err = heyl_app::login::run(
+    let err = heyl_app::recovery::run(
         &h.ports(),
         "someone@example.com",
+        Confirmation::Granted,
         CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
         ChallengeEncoding::Utf8,
         heyl_domain::SessionType::BackupCode,
@@ -353,4 +363,120 @@ async fn a_backend_refusal_is_surfaced_in_heylogins_own_words() {
         rendered.contains("The session type reported by your client is invalid."),
         "keeps heylogin's detail: {rendered}"
     );
+}
+
+// ------------------------------------------------------- the confirmation gate
+
+/// Build a harness whose account still has a phone attached, so a recovery has
+/// something to destroy.
+fn harness_with_push(answers: &[&str]) -> Harness {
+    let mut h = Harness::new(answers);
+    let account = Account::new();
+    h.api = FakeBackend::new(
+        account.challenge_with(CHALLENGE, true),
+        account.tokens(),
+        account.sync(true),
+        account.authenticators(),
+        account.commits(),
+        account.login_verifier(),
+    );
+    h
+}
+
+async fn recover(h: &Harness, confirmation: Confirmation<'_>) -> Result<(), AppError> {
+    heyl_app::recovery::run(
+        &h.ports(),
+        "someone@example.com",
+        confirmation,
+        CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
+        ChallengeEncoding::Utf8,
+        heyl_domain::SessionType::BackupCode,
+    )
+    .await
+    .map(|_| ())
+}
+
+/// Answering anything but yes leaves the account untouched — and, critically,
+/// never reaches `CreateTokens`, which is the call that does the damage.
+#[tokio::test]
+async fn declining_the_prompt_does_not_reach_create_tokens() {
+    let h = harness_with_push(&["n"]);
+    let err = recover(&h, Confirmation::Ask("go ahead? "))
+        .await
+        .expect_err("declined");
+
+    assert!(matches!(err, AppError::NotConfirmed), "{err:?}");
+    assert_eq!(
+        h.api.calls(),
+        ["create_challenge"],
+        "the destructive call must not be made: {:?}",
+        h.api.calls()
+    );
+}
+
+#[tokio::test]
+async fn accepting_the_prompt_proceeds_and_reports_what_was_lost() {
+    let h = harness_with_push(&["y"]);
+    let outcome = heyl_app::recovery::run(
+        &h.ports(),
+        "someone@example.com",
+        Confirmation::Ask("go ahead? "),
+        CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
+        ChallengeEncoding::Utf8,
+        heyl_domain::SessionType::BackupCode,
+    )
+    .await
+    .expect("confirmed");
+
+    // The account's phone is named, from the pre-recovery CreateChallenge --
+    // afterwards it is gone and could not be reported at all.
+    assert_eq!(outcome.disconnected.len(), 1);
+    assert_eq!(
+        outcome.disconnected[0].kind,
+        heyl_domain::AuthenticatorType::Push
+    );
+    assert!(h.api.calls().contains(&"create_tokens"));
+}
+
+/// `--confirm` is the scripted path, and skips the question.
+#[tokio::test]
+async fn confirm_flag_proceeds_without_asking() {
+    // No scripted answers: a prompt would fail the test by running out.
+    let h = harness_with_push(&[]);
+    recover(&h, Confirmation::Granted).await.expect("proceeds");
+    assert!(h.api.calls().contains(&"create_tokens"));
+}
+
+/// Nothing to lose, nothing to ask. A second recovery, with the phone already
+/// gone, must not train anyone to dismiss a warning.
+#[tokio::test]
+async fn nothing_to_disconnect_means_nothing_is_asked() {
+    let h = Harness::new(&[]);
+    let outcome = heyl_app::recovery::run(
+        &h.ports(),
+        "someone@example.com",
+        Confirmation::Ask("go ahead? "),
+        CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
+        ChallengeEncoding::Utf8,
+        heyl_domain::SessionType::BackupCode,
+    )
+    .await
+    .expect("proceeds unasked");
+
+    assert!(outcome.disconnected.is_empty());
+    assert!(h.api.calls().contains(&"create_tokens"));
+}
+
+/// Without a terminal to ask at and without `--confirm`, refuse. A destructive
+/// operation does not run silently because nobody was there to object.
+#[tokio::test]
+async fn a_non_interactive_run_refuses_rather_than_destroying_silently() {
+    let mut h = harness_with_push(&[]);
+    h.terminal = ScriptedTerminal::non_interactive();
+
+    let err = recover(&h, Confirmation::Ask("go ahead? "))
+        .await
+        .expect_err("refused");
+    assert!(matches!(err, AppError::NotConfirmed), "{err:?}");
+    assert_eq!(h.api.calls(), ["create_challenge"]);
 }

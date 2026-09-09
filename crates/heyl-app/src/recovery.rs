@@ -1,4 +1,11 @@
-//! `heyl login recovery`.
+//! `heyl recovery` — an account **recovery**, not a sign-in.
+//!
+//! heylogin's Security Whitepaper §6.5.4: using a `BACKUP_CODE` authenticator
+//! makes the server *delete the push authenticator and all its locks*, and
+//! restricts the resulting session to replacing the primary authenticator.
+//! That is why this is not called `login` and why it asks first: a command
+//! that disconnects the user's phone must not be reachable by someone who
+//! believes they are signing in.
 //!
 //! The sequence, and why it is in this order:
 //!
@@ -9,11 +16,14 @@
 //!    it is rejected before `CreateTokens`, which still saves an Argon2id run
 //!    and a round trip, and gives the user "that code is wrong" instead of a
 //!    backend error.
-//! 2. Read the code — never from argv, in any spelling. §4 makes it a reusable
+//! 2. **Confirm** — `CreateChallenge` lists the account's authenticators, so
+//!    what is about to be disconnected is known before anything is committed.
+//!    When there is nothing to lose, nothing is asked.
+//! 3. Read the code — never from argv, in any spelling. §4 makes it a reusable
 //!    master credential for every vault, so `ps` output and shell history are
 //!    both disqualifying.
-//! 3. Argon2id → seed, then verify against the checksum locally.
-//! 4. Sign, and **self-grant an unlock in the same call**: `CreateTokens`
+//! 4. Argon2id → seed, then verify against the checksum locally.
+//! 5. Sign, and **self-grant an unlock in the same call**: `CreateTokens`
 //!    carries a `session_unlock`, so the seed is sealed to a session key we
 //!    just generated and stored. That is what lets `heyl doctor`, in a
 //!    separate process, decrypt anything at all.
@@ -31,16 +41,44 @@ use crate::{AppError, Ports};
 /// Where the recovery code may come from.
 pub const CODE_ENV: &str = "HEYL_RECOVERY_CODE";
 
-/// What `login` produces.
+/// What `recovery` produces.
 #[derive(Debug, Clone)]
-pub struct LoginOutcome {
-    /// The account we logged into.
+pub struct RecoveryOutcome {
+    /// The account recovered.
     pub user_id: String,
+    /// The authenticators heylogin is expected to have disconnected.
+    ///
+    /// Read from `CreateChallenge` *before* the recovery, since afterwards
+    /// they are gone. Empty when there was nothing to disconnect.
+    pub disconnected: Vec<Disconnectable>,
     /// The session the token belongs to.
     pub session_id: heyl_domain::SessionId,
     /// When the unlock actually expires, as the backend decided — not what we
     /// asked for.
     pub unlocked_until: Option<heyl_domain::Timestamp>,
+}
+
+/// An authenticator a recovery is expected to remove.
+///
+/// Type and id only: authenticators carry **no name or description anywhere in
+/// the schema**. The friendly device names heylogin's app shows are
+/// `SessionMetadata.description` — *session* names, held in the encrypted META
+/// vault and therefore unreadable until after the recovery has already
+/// happened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Disconnectable {
+    /// Which authenticator.
+    pub id: heyl_domain::AuthenticatorId,
+    /// What kind it is.
+    pub kind: AuthenticatorType,
+}
+
+/// Whether the user has agreed to lose the authenticators above.
+pub enum Confirmation<'a> {
+    /// `--confirm` was given: proceed without asking.
+    Granted,
+    /// Ask, using this prompt, if there is anything to ask about.
+    Ask(&'a str),
 }
 
 /// How the recovery code reaches us.
@@ -54,23 +92,29 @@ pub enum CodeSource<'a> {
     Ask(&'a str),
 }
 
-/// Run the login.
+/// Run the recovery.
 ///
 /// # Errors
 /// [`AppError::NoRecoveryAuthenticator`] if the account has no `BACKUP_CODE`,
-/// [`AppError::WrongRecoveryCode`] if the checksum rejects it,
-/// [`AppError::SignatureRejected`] if the backend refuses our signature.
+/// [`AppError::NotConfirmed`] if there is something to disconnect and the user
+/// did not agree, [`AppError::WrongRecoveryCode`] if the checksum rejects the
+/// code, [`AppError::SignatureRejected`] if the backend refuses our signature.
 pub async fn run(
     ports: &Ports<'_>,
     email: &str,
+    confirmation: Confirmation<'_>,
     code: CodeSource<'_>,
     encoding: ChallengeEncoding,
     session_type: SessionType,
-) -> Result<LoginOutcome, AppError> {
+) -> Result<RecoveryOutcome, AppError> {
     let challenge = ports.api.create_challenge(email).await?;
 
     let (authenticator, secret) = recovery_authenticator(&challenge.authenticators)
         .ok_or(AppError::NoRecoveryAuthenticator)?;
+
+    // What this is about to cost, established before anything is committed.
+    let disconnected = disconnectable(&challenge.authenticators, authenticator.id);
+    confirm(ports, &confirmation, &disconnected)?;
 
     let code = match code {
         CodeSource::Given(code) => code,
@@ -148,11 +192,73 @@ pub async fn run(
         .session(tokens.session_id)
         .and_then(|s| s.unlocked_until);
 
-    Ok(LoginOutcome {
+    Ok(RecoveryOutcome {
         user_id: challenge.user_id,
+        disconnected,
         session_id: tokens.session_id,
         unlocked_until,
     })
+}
+
+/// Which authenticators a recovery is expected to remove.
+///
+/// Everything except the `BACKUP_CODE` authenticator being used. The
+/// whitepaper documents removal of the **push** authenticator specifically;
+/// whether `WEBAUTHN` or `BACKUP_OS` also go is undocumented and untested, so
+/// this errs towards naming anything that might, rather than claiming a
+/// precision we do not have.
+fn disconnectable(
+    authenticators: &[Authenticator],
+    in_use: heyl_domain::AuthenticatorId,
+) -> Vec<Disconnectable> {
+    authenticators
+        .iter()
+        .filter(|a| a.id != in_use)
+        .map(|a| Disconnectable {
+            id: a.id,
+            kind: a.authenticator_type,
+        })
+        .collect()
+}
+
+/// Gate the recovery on the user having agreed to lose `disconnected`.
+///
+/// Nothing at stake means nothing is asked — a second recovery, with the phone
+/// already gone, has nothing left to destroy and should not train anyone to
+/// dismiss a warning.
+fn confirm(
+    ports: &Ports<'_>,
+    confirmation: &Confirmation<'_>,
+    disconnected: &[Disconnectable],
+) -> Result<(), AppError> {
+    if disconnected.is_empty() {
+        return Ok(());
+    }
+    match *confirmation {
+        Confirmation::Granted => Ok(()),
+        Confirmation::Ask(prompt) => {
+            if !ports.terminal.is_interactive() {
+                // Never destroy something silently in a script.
+                return Err(AppError::NotConfirmed);
+            }
+            ports
+                .terminal
+                .note("This will disconnect from your heylogin account:");
+            for d in disconnected {
+                ports.terminal.note(&format!("  {:?}  {}", d.kind, d.id));
+            }
+            ports.terminal.note(
+                "Pairing a phone again afterwards regenerates every profile, \
+                 so anything recorded from this account before that point stops opening.",
+            );
+            let answer = ports.terminal.prompt_line(prompt)?;
+            if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+                Ok(())
+            } else {
+                Err(AppError::NotConfirmed)
+            }
+        }
+    }
 }
 
 /// The account's `BACKUP_CODE` authenticator, with its parsed secret.

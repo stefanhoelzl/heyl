@@ -18,7 +18,7 @@ use heyl_crypto::{SecretSalt, Seed};
 use heyl_domain::{Authenticator, AuthenticatorId, AuthenticatorKeys, SyncSnapshot};
 use heyl_ports::{SecretKey, StoredSecret};
 
-use crate::{AppError, Ports, login::decode_key};
+use crate::{AppError, Ports, recovery::decode_key};
 
 /// An unlocked session: the seed, and the authenticator keys it derives.
 pub struct Unlocked {

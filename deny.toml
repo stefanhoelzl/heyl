@@ -4,6 +4,21 @@
 [graph]
 all-features = true
 
+# The platforms DESIGN.md §7 ships a static binary for. Without this,
+# cargo-deny reasons about every target Rust has -- which pulled
+# `webpki-root-certs` (CDLA-Permissive-2.0) into the licence check through
+# `rustls-platform-verifier`'s `cfg(target_arch = "wasm32")` branch, a crate
+# that is never compiled for anything heyl ships. Linux is musl only: a static
+# musl binary runs on glibc distros too, and gnu resolves to a byte-identical
+# dependency graph anyway.
+targets = [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
 [advisories]
 version = 2
 yanked = "deny"
@@ -25,6 +40,10 @@ wildcards = "deny"
 # `libc` is deliberately NOT banned: it is an FFI *declaration* crate with no C
 # source and no build script needing a compiler. Same for `windows-sys` and
 # `mach2`, which `region` uses to declare mlock/mprotect.
+#
+# The ban is absolute, with no wrapper exception, because the TLS layer no
+# longer needs one: rustls takes its `CryptoProvider` from `rustls-graviola`
+# rather than from `ring` or `aws-lc-rs`, both of which build C with `cc`.
 deny = [
     { crate = "cc",            reason = "invokes a C compiler; DESIGN.md §4 requires a pure-Rust graph" },
     { crate = "cmake",         reason = "invokes cmake; DESIGN.md §4 requires a pure-Rust graph" },

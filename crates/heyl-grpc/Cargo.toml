@@ -27,6 +27,7 @@ hyper-util   = { workspace = true }
 prost        = { workspace = true }
 prost-types  = { workspace = true }
 rustls       = { workspace = true }
+rustls-graviola = { workspace = true }
 rustls-platform-verifier = { workspace = true }
 thiserror    = { workspace = true }
 tokio        = { workspace = true }

@@ -7,26 +7,30 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 jobs:
   test:
     name: fmt · clippy · test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      # rust-toolchain.toml pins the channel; nothing to select here.
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@v7
+      # Reads rust-toolchain.toml -- channel and components come from there, so
+      # the pin lives in one place. Wraps Swatinem/rust-cache internally, and
+      # adds problem matchers so cargo and rustfmt findings annotate the diff.
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --all-features
+      # `-D warnings` on the clippy invocation rather than in RUSTFLAGS: a
+      # global RUSTFLAGS applies to dependencies too and gives every job a
+      # different cache key.
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
 
   boundaries:
     name: dependency rules
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       # DESIGN.md §4's crate edges, and the workspace-lints opt-in that carries
       # `unsafe_code = "forbid"`.
       - run: ./ci/check-dep-graph.sh
@@ -35,7 +39,8 @@ jobs:
     name: advisories · licenses · no C toolchain
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      # Runs in its own container; needs no Rust toolchain of ours.
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans licenses sources

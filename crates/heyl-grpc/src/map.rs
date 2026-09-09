@@ -95,6 +95,15 @@ fn vault_type(value: i32) -> Option<VaultType> {
     }
 }
 
+/// Whether a wire vault-type discriminant is one v1 reads.
+///
+/// Exposed so tooling can walk vaults in exactly the order the client does,
+/// including the same skips.
+#[must_use]
+pub fn vault_type_is_supported(value: i32) -> bool {
+    vault_type(value).is_some_and(heyl_domain::VaultType::is_supported)
+}
+
 /// The domain's session type, on the wire.
 #[must_use]
 pub const fn session_type(value: heyl_domain::SessionType) -> heyl_proto::SessionType {

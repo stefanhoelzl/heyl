@@ -9,7 +9,10 @@
 //!   key material is entirely synthetic, so the throwaway account's seed and
 //!   recovery code never enter the repository.
 
+mod frames;
+mod mem;
 mod probe;
+mod record;
 mod rekey;
 
 use clap::{Parser, Subcommand};
@@ -110,10 +113,37 @@ enum Command {
         client_type: String,
     },
 
-    /// Re-key a real account's data into a committed fixture.
+    /// Record a whole session against a real account, in one pass.
+    ///
+    /// Captures the gRPC-Web bytes for the recovery and every read `doctor`
+    /// performs. The output holds **real key material and a live token** and is
+    /// input to `rekey`, never something to commit.
+    ///
+    /// A destructive recovery cannot be repeated without pairing a phone
+    /// again, so this captures everything a wire-level replay needs in a
+    /// single run.
+    Record {
+        /// Where to write the raw recording.
+        #[arg(long, default_value = ".work/recording.json")]
+        out: std::path::PathBuf,
+
+        /// Proceed without asking before disconnecting anything.
+        #[arg(long)]
+        confirm: bool,
+    },
+
+    /// Re-key a real recording into a committable fixture.
+    ///
+    /// Replaces every secret with synthetic material while keeping the real
+    /// vault documents, then asserts the result opens with the committed test
+    /// code and **not** with the real one.
     Rekey {
+        /// The raw recording from `record`.
+        #[arg(long, default_value = ".work/recording.json")]
+        input: std::path::PathBuf,
+
         /// Where to write the fixture.
-        #[arg(long, default_value = "tests/fixtures/vault")]
+        #[arg(long, default_value = "tests/fixtures/wire/session.json")]
         out: std::path::PathBuf,
     },
 }
@@ -159,7 +189,10 @@ fn main() -> std::process::ExitCode {
         Command::ProbeLongPoll { client_type } => {
             runtime.block_on(probe::long_poll(&cli.endpoint, &client_type))
         }
-        Command::Rekey { out } => rekey::run(&out),
+        Command::Record { out, confirm } => {
+            runtime.block_on(record::run(&cli.endpoint, &out, confirm))
+        }
+        Command::Rekey { input, out } => rekey::run(&input, &out),
     };
 
     match result {

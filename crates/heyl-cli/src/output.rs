@@ -52,10 +52,26 @@ fn human(report: &Report) {
     println!();
     println!("{pass} passed, {fail} failed, {skip} skipped");
     if fail > 0 {
-        eprintln!(
-            "\nA failed link means the derived key disagrees with the one heylogin publishes:\n\
-             the context salt for that link is wrong. See DESIGN.md §6."
-        );
+        // Only key comparisons say anything about the hierarchy. A vault that
+        // failed to *fetch* says nothing about our contexts, and telling
+        // someone their context salt is wrong when the response was truncated
+        // sends them to the wrong place entirely.
+        let key_failures = report
+            .checks
+            .iter()
+            .any(|c| c.outcome == Outcome::Fail && c.name.starts_with("link "));
+        if key_failures {
+            eprintln!(
+                "\nA failed *link* means the derived key disagrees with the one heylogin\n\
+                 publishes: the context salt for that link is wrong. See DESIGN.md §6."
+            );
+        } else {
+            eprintln!(
+                "\nNo derivation link failed — every key we derived matches the one heylogin\n\
+                 publishes. The failures above are fetch or decode problems, which say nothing\n\
+                 about the key hierarchy."
+            );
+        }
     }
 }
 

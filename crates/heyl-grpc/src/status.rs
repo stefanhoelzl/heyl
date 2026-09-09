@@ -77,6 +77,12 @@ pub fn decode_details_base64(raw: &str) -> Option<DomainErrorDetail> {
     decode_details(&bytes)
 }
 
+/// Whether a status describes a response that ended without its trailers.
+fn is_truncated_response(message: &str) -> bool {
+    message.contains("missing grpc-status")
+        || message.contains("stream was terminated without a final status")
+}
+
 /// Map a `tonic::Status` onto the port's error taxonomy.
 ///
 /// The backend distinguishes absent credentials (status 16, `DomainError`
@@ -99,6 +105,18 @@ pub fn to_api_error(status: &tonic::Status) -> ApiError {
         .as_ref()
         .filter(|d| !d.user_title.is_empty())
         .map_or_else(|| status.message().to_owned(), |d| d.user_title.clone());
+
+    // A response whose gRPC-Web trailer frame never arrived is a *transport*
+    // failure wearing a status code. tonic reports it as UNKNOWN with a
+    // protocol-error message, and heylogin's proxy drops it intermittently on
+    // responses that otherwise came through intact. Classifying it as a
+    // backend answer would be wrong twice over: it is not an answer, and it is
+    // worth retrying, which a backend error never is.
+    if status.code() == tonic::Code::Unknown && is_truncated_response(status.message()) {
+        return ApiError::Transport {
+            reason: status.message().to_owned(),
+        };
+    }
 
     match (status.code(), domain_code) {
         (_, Some(code::MISSING_CREDENTIALS)) | (tonic::Code::Unauthenticated, _) => {

@@ -61,6 +61,22 @@ type HttpsClient = hyper_util::client::legacy::Client<
 >;
 type Transport = tonic_web::GrpcWebClientService<HttpsClient>;
 
+/// What a completed phone-swipe channel hands back (§5).
+#[derive(Debug, Clone)]
+pub struct LongPollChallenge {
+    /// The account.
+    pub user_id: String,
+    /// The challenge to sign.
+    pub challenge: String,
+    /// Which authenticator the phone answered with.
+    pub authenticator_id: heyl_domain::AuthenticatorId,
+    /// `asymEncrypt(ourLongPollPubKey, seed)`.
+    pub encrypted_secret: Vec<u8>,
+    /// Whether this was a registration rather than a login. The client only
+    /// self-grants an unlock when it is *not* a registration.
+    pub registration: bool,
+}
+
 /// A gRPC-Web client for heylogin.
 pub struct GrpcClient {
     config: GrpcConfig,
@@ -94,14 +110,29 @@ impl GrpcClient {
                 reason: format!("could not build a TLS config: {e}"),
             })?;
 
+        // Both versions, negotiated by ALPN. heylogin answers HTTP/2 (M0
+        // recorded `HTTP/2 200`), and gRPC-Web carries its trailers *inside
+        // the body* -- so a mismatch here shows up as an intermittently
+        // truncated response with no grpc-status, on larger payloads, rather
+        // than as a connection error.
         let connector = hyper_rustls::HttpsConnectorBuilder::new()
             .with_tls_config(tls)
             .https_or_http()
             .enable_http1()
+            .enable_http2()
             .build();
 
         let http =
             hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                // No idle-connection pooling.
+                //
+                // A pooled connection the server has already closed produces a
+                // response body that ends without gRPC-Web's trailer frame,
+                // which surfaces as an intermittent "missing grpc-status
+                // trailer" on whichever call happens to reuse it. A CLI makes a
+                // handful of requests and exits, so the handshake it costs is
+                // not worth the flakiness it buys.
+                .pool_max_idle_per_host(0)
                 .build(connector);
 
         Ok(Self {
@@ -154,9 +185,117 @@ impl GrpcClient {
             })
     }
 
+    /// `CredentialService.CreateLongPollChannelChallenge` — the phone-swipe
+    /// channel (§5).
+    ///
+    /// **Long-polls**: the call does not return until a phone completes the
+    /// channel or the backend gives up. Not on `HeylApi` yet — the phone-swipe
+    /// flow is M4, and this exists so its reachability can be established
+    /// before the port grows a method for it.
+    ///
+    /// # Errors
+    /// [`ApiError`] on any transport or backend failure.
+    pub async fn create_long_poll_channel_challenge(
+        &self,
+        public_key_hash: &str,
+    ) -> Result<LongPollChallenge, ApiError> {
+        // Built inline rather than through `client_for!`: that macro is
+        // declared further down this file, and a macro_rules! must precede its
+        // use within one module.
+        let mut client =
+            heyl_proto::credential_service_client::CredentialServiceClient::with_origin(
+                self.transport(),
+                self.origin()?,
+            );
+        let request = self
+            .request(heyl_proto::CreateLongPollChannelChallengeRequest {
+                public_key_hash: public_key_hash.to_owned(),
+            })
+            .await?;
+        let response = client
+            .create_long_poll_channel_challenge(request)
+            .await
+            .map_err(|s| to_api_error(&s))?;
+        let r = response.get_ref();
+        let authenticator =
+            r.authenticator
+                .as_ref()
+                .ok_or_else(|| ApiError::MalformedResponse {
+                    what: "CreateLongPollChannelChallengeResponse.authenticator".to_owned(),
+                })?;
+
+        // The reply is an `AuthenticatorReply` protobuf whose
+        // `encrypted_secret_reply.encrypted_secret` is
+        // `asymEncrypt(ourPubKey, seed)`.
+        let reply = <heyl_proto::AuthenticatorReply as prost::Message>::decode(
+            &*r.authenticator_reply.clone(),
+        )
+        .map_err(|_| ApiError::MalformedResponse {
+            what: "authenticator_reply is not an AuthenticatorReply".to_owned(),
+        })?;
+        let Some(heyl_proto::authenticator_reply::ReplyOneof::EncryptedSecretReply(secret)) =
+            reply.reply_oneof
+        else {
+            return Err(ApiError::MalformedResponse {
+                what: "authenticator_reply carries no encrypted secret".to_owned(),
+            });
+        };
+
+        Ok(LongPollChallenge {
+            user_id: r.user_id.clone(),
+            challenge: r.challenge.clone(),
+            authenticator_id: heyl_domain::AuthenticatorId::parse(&authenticator.id).map_err(
+                |_| ApiError::MalformedResponse {
+                    what: "long-poll authenticator id is not a UUID".to_owned(),
+                },
+            )?,
+            encrypted_secret: secret.encrypted_secret,
+            registration: secret.registration,
+        })
+    }
+
     fn transport(&self) -> Transport {
         self.transport.clone()
     }
+}
+
+/// How many times an idempotent read is retried after a transport fault.
+const READ_RETRIES: usize = 3;
+
+/// Retry `call` while it fails at the transport layer.
+///
+/// heylogin sits behind a proxy that intermittently drops the gRPC-Web trailer
+/// frame, which surfaces as `missing grpc-status trailer` on a response that
+/// otherwise arrived. It is not correlated with a particular RPC or payload —
+/// the same call succeeds on the next attempt.
+///
+/// Only ever wrapped around **idempotent reads**. `CreateTokens` is not one:
+/// a challenge is single-use, so retrying it would answer a spent challenge
+/// and turn a transport blip into a confusing credential error.
+async fn retrying_read<T, F, Fut>(mut call: F) -> Result<T, ApiError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, ApiError>>,
+{
+    let mut last = None;
+    for attempt in 0..=READ_RETRIES {
+        match call().await {
+            Ok(value) => return Ok(value),
+            // Only a transport fault is worth another go. A backend error is
+            // an answer, and repeating the question will not change it.
+            Err(ApiError::Transport { reason }) => {
+                if attempt < READ_RETRIES {
+                    let backoff = 150_u64 << u32::try_from(attempt).unwrap_or(0);
+                    tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
+                }
+                last = Some(ApiError::Transport { reason });
+            }
+            Err(other) => return Err(other),
+        }
+    }
+    Err(last.unwrap_or(ApiError::Transport {
+        reason: "read failed with no recorded cause".to_owned(),
+    }))
 }
 
 macro_rules! client_for {
@@ -173,21 +312,24 @@ impl HeylApi for GrpcClient {
     }
 
     async fn create_challenge(&self, email: &str) -> Result<Challenge, ApiError> {
-        let mut client = client_for!(
-            self,
-            heyl_proto::credential_service_client::CredentialServiceClient<_>
-        );
-        let request = self
-            .request(heyl_proto::CreateChallengeRequest {
-                email: email.to_owned(),
-                ..Default::default()
-            })
-            .await?;
-        let response = client
-            .create_challenge(request)
-            .await
-            .map_err(|s| to_api_error(&s))?;
-        map::challenge(response.get_ref())
+        retrying_read(|| async {
+            let mut client = client_for!(
+                self,
+                heyl_proto::credential_service_client::CredentialServiceClient<_>
+            );
+            let request = self
+                .request(heyl_proto::CreateChallengeRequest {
+                    email: email.to_owned(),
+                    ..Default::default()
+                })
+                .await?;
+            let response = client
+                .create_challenge(request)
+                .await
+                .map_err(|s| to_api_error(&s))?;
+            map::challenge(response.get_ref())
+        })
+        .await
     }
 
     async fn create_tokens(
@@ -250,55 +392,62 @@ impl HeylApi for GrpcClient {
     }
 
     async fn sync(&self) -> Result<SyncSnapshot, ApiError> {
-        let mut client = client_for!(self, heyl_proto::sync_service_client::SyncServiceClient<_>);
-        let request = self.request(heyl_proto::SyncRequest::default()).await?;
-        let response = client.sync(request).await.map_err(|s| to_api_error(&s))?;
-        let update =
-            response
-                .get_ref()
-                .sync_update
-                .as_ref()
-                .ok_or_else(|| ApiError::MalformedResponse {
+        retrying_read(|| async {
+            let mut client =
+                client_for!(self, heyl_proto::sync_service_client::SyncServiceClient<_>);
+            let request = self.request(heyl_proto::SyncRequest::default()).await?;
+            let response = client.sync(request).await.map_err(|s| to_api_error(&s))?;
+            let update = response.get_ref().sync_update.as_ref().ok_or_else(|| {
+                ApiError::MalformedResponse {
                     what: "SyncResponse.sync_update".to_owned(),
-                })?;
-        map::sync_update(update)
+                }
+            })?;
+            map::sync_update(update)
+        })
+        .await
     }
 
     async fn list_authenticators(&self) -> Result<Vec<Authenticator>, ApiError> {
-        let mut client = client_for!(
-            self,
-            heyl_proto::authenticator_service_client::AuthenticatorServiceClient<_>
-        );
-        let request = self
-            .request(heyl_proto::ListAuthenticatorsRequest::default())
-            .await?;
-        let response = client.list(request).await.map_err(|s| to_api_error(&s))?;
-        response
-            .get_ref()
-            .authenticators
-            .iter()
-            .filter_map(|a| map::authenticator(a).transpose())
-            .collect()
+        retrying_read(|| async {
+            let mut client = client_for!(
+                self,
+                heyl_proto::authenticator_service_client::AuthenticatorServiceClient<_>
+            );
+            let request = self
+                .request(heyl_proto::ListAuthenticatorsRequest::default())
+                .await?;
+            let response = client.list(request).await.map_err(|s| to_api_error(&s))?;
+            response
+                .get_ref()
+                .authenticators
+                .iter()
+                .filter_map(|a| map::authenticator(a).transpose())
+                .collect()
+        })
+        .await
     }
 
     async fn list_commits(&self, vault: VaultId) -> Result<VaultCommits, ApiError> {
-        let mut client = client_for!(
-            self,
-            heyl_proto::vault_service_client::VaultServiceClient<_>
-        );
-        let request = self
-            .request(heyl_proto::ListCommitsRequest {
-                vault_id: vault.to_string(),
-                // Nothing is cached, so a lock the backend omits as "you
-                // already have it" would read as a failure (decision 29).
-                force_locks: true,
-                ..Default::default()
-            })
-            .await?;
-        let response = client
-            .list_commits(request)
-            .await
-            .map_err(|s| to_api_error(&s))?;
-        map::vault_commits(response.get_ref())
+        retrying_read(|| async {
+            let mut client = client_for!(
+                self,
+                heyl_proto::vault_service_client::VaultServiceClient<_>
+            );
+            let request = self
+                .request(heyl_proto::ListCommitsRequest {
+                    vault_id: vault.to_string(),
+                    // Nothing is cached, so a lock the backend omits as "you
+                    // already have it" would read as a failure (decision 29).
+                    force_locks: true,
+                    ..Default::default()
+                })
+                .await?;
+            let response = client
+                .list_commits(request)
+                .await
+                .map_err(|s| to_api_error(&s))?;
+            map::vault_commits(response.get_ref())
+        })
+        .await
     }
 }

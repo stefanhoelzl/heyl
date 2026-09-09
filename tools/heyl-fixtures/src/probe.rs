@@ -133,6 +133,8 @@ pub async fn run(
     endpoint: &str,
     client_type: &str,
     authenticator_override: Option<&str>,
+    no_unlock: bool,
+    corrupt_signature: bool,
     only: Option<&str>,
     delay_secs: u64,
 ) -> Result<(), String> {
@@ -220,15 +222,24 @@ pub async fn run(
             }
             sent += 1;
 
+            let mut response = signature.as_bytes().to_vec();
+            if corrupt_signature {
+                response[0] ^= 0x01;
+            }
+
             let outcome = match api
                 .create_tokens(
                     authenticator_id,
                     &challenge.challenge,
-                    signature.as_bytes(),
+                    &response,
                     session_type,
                     // The same request shape `heyl login` sends. Omitting the
                     // grant would vary two things at once.
-                    Some(unlock_grant(&seed)),
+                    if no_unlock {
+                        None
+                    } else {
+                        Some(unlock_grant(&seed).0)
+                    },
                 )
                 .await
             {
@@ -282,17 +293,22 @@ fn verdict(accepted: &[(SessionType, ChallengeEncoding)]) -> Result<(), String> 
 }
 
 /// The self-granted unlock that accompanies a real login (§6).
-fn unlock_grant(seed: &Seed) -> SessionUnlockGrant {
+///
+/// Returns the session private key too: without it the grant is
+/// undecryptable, and a later process needs it to recover the seed from
+/// `Sync`.
+fn unlock_grant(seed: &Seed) -> (SessionUnlockGrant, heyl_crypto::EncryptionPrivateKey) {
     let random = OsRandom;
     let session_key = heyl_domain::session_encryption_key(&random.seed()).expect("derives");
-    SessionUnlockGrant {
+    let grant = SessionUnlockGrant {
         encrypted_secret: session_key.public_key().seal(
             &random.ephemeral_key(),
             &random.nonce(),
             seed.expose_secret(),
         ),
         expires_at: SystemClock.next_unlock_deadline(),
-    }
+    };
+    (grant, session_key)
 }
 
 fn recovery_authenticator(
@@ -323,4 +339,114 @@ fn derive(code: &str, secret: &RecoverySecret) -> Result<Seed, String> {
         );
     }
     Ok(Seed::from_bytes(&derived))
+}
+
+/// Open a phone-swipe channel and print the QR URL (§5).
+///
+/// This is the flow the shipped clients use, and the one the backend does not
+/// gate to mobile client types. A call that *blocks* is the success signal:
+/// the channel exists and is waiting for a phone.
+pub async fn long_poll(endpoint: &str, client_type: &str) -> Result<(), String> {
+    use base64::Engine as _;
+
+    let api = GrpcClient::new(GrpcConfig {
+        endpoint: endpoint.to_owned(),
+        client_type: client_type.to_owned(),
+        ..GrpcConfig::default()
+    })
+    .map_err(|e| e.to_string())?;
+
+    // `deriveEncryptionKeyPair(random, null, 'salt-long-poll-login-encryption-key-')`
+    let random = OsRandom;
+    let key = heyl_crypto::EncryptionPrivateKey::derive(
+        &random.seed(),
+        None,
+        heyl_crypto::context::LONG_POLL_LOGIN_ENCRYPTION,
+    )
+    .map_err(|e| e.to_string())?;
+    let pub_key = key.public_key();
+
+    // publicKeyHash = base64(SHA512(pubKey)[:32])
+    let hash = heyl_crypto::hash_data(pub_key.as_bytes());
+    let public_key_hash = base64::engine::general_purpose::STANDARD.encode(hash);
+
+    let url = format!(
+        "https://heylogin.app/qr/#{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pub_key.as_bytes())
+    );
+
+    eprintln!("client-type {client_type}");
+    eprintln!("Scan or open on the phone that holds this account:\n\n    {url}\n");
+    eprintln!("Waiting on the channel (a hang here means it is open and reachable)...");
+
+    let completed = api
+        .create_long_poll_channel_challenge(&public_key_hash)
+        .await
+        .map_err(|e| format!("channel refused: {e}"))?;
+
+    eprintln!(
+        "\nchannel completed: user {}, authenticator {}{}",
+        completed.user_id,
+        completed.authenticator_id,
+        if completed.registration {
+            " (registration)"
+        } else {
+            ""
+        }
+    );
+
+    // The phone sealed the seed to our long-poll public key.
+    let plaintext = key
+        .open(&completed.encrypted_secret)
+        .map_err(|e| format!("could not open the sealed seed: {e}"))?;
+    let seed = Seed::try_from_slice(&plaintext).map_err(|e| format!("seed: {e}"))?;
+    eprintln!("seed recovered from the phone.");
+
+    let signature =
+        heyl_domain::sign_challenge(&seed, &completed.challenge, ChallengeEncoding::Utf8)
+            .map_err(|e| format!("signing: {e}"))?;
+
+    // `createUnlock: !registration`, exactly as longPollManager does.
+    let granted = (!completed.registration).then(|| unlock_grant(&seed));
+    let session_key = granted.as_ref().map(|(_, k)| k.clone());
+    let unlock = granted.map(|(g, _)| g);
+
+    let tokens = api
+        .create_tokens(
+            completed.authenticator_id,
+            &completed.challenge,
+            signature.as_bytes(),
+            SessionType::Connected,
+            unlock,
+        )
+        .await
+        .map_err(|e| format!("CreateTokens: {e}"))?;
+
+    eprintln!("\nLOGGED IN.");
+    eprintln!("  session:  {}", tokens.session_id);
+    eprintln!("  token:    {} chars", tokens.access_token.len());
+    eprintln!("  vaults:   {}", tokens.sync.vaults.len());
+    eprintln!("  profiles: {}", tokens.sync.profiles.len());
+    eprintln!(
+        "  unlock:   {}",
+        if tokens.sync.session_unlock.is_some() {
+            "granted"
+        } else {
+            "absent"
+        }
+    );
+    match session_key {
+        Some(key) => {
+            eprintln!("\nRun `heyl doctor` in a separate process with:");
+            eprintln!("  export HEYL_TOKEN='{}'", tokens.access_token);
+            eprintln!(
+                "  export HEYL_SESSION_KEY='{}'",
+                heyl_app::login::encode_key(&key)
+            );
+        }
+        None => eprintln!(
+            "\nNo unlock was granted (this was a registration), so nothing to decrypt with."
+        ),
+    }
+    Ok(())
 }

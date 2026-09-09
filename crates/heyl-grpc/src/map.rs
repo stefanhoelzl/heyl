@@ -114,27 +114,37 @@ pub const fn session_type(value: heyl_domain::SessionType) -> heyl_proto::Sessio
 
 /// A profile's lock on one authenticator.
 ///
-/// `owner` is the profile the lock was *read out of*. The wire message repeats
-/// the profile id inside the lock, and the two must agree: a backend that
-/// nested a lock under the wrong profile would otherwise send us down the chain
-/// with a mismatched key and surface as an opaque authentication failure.
+/// `owner` is the profile the lock was *read out of*.
+///
+/// The wire message repeats `profile_id` and `profile_key_generation_id`
+/// inside the lock, but the backend leaves them **empty** when the lock is
+/// nested inside the `SyncUpdateProfile` that already identifies it — which is
+/// every lock we see on the login path. So they are inherited from the owner
+/// when absent, and only checked when the backend actually sends them: a lock
+/// nested under the wrong profile would otherwise send us down the chain with
+/// a mismatched key and surface as an opaque authentication failure.
 /// # Errors
 /// [`ApiError::MalformedResponse`] if an id is not a UUID, or if the nested
 /// `profile_id` disagrees with the profile the lock arrived under.
 pub fn profile_authenticator_lock(
     lock: &heyl_proto::ProfileAuthenticatorLock,
     owner: ProfileId,
+    owner_generation: &KeyGenerationId,
 ) -> Result<ProfileAuthenticatorLock, ApiError> {
-    let profile_id = id!(
+    let profile_id = match opt_id!(
         ProfileId,
         &lock.profile_id,
         "ProfileAuthenticatorLock.profile_id"
-    )?;
-    if profile_id != owner {
-        return Err(missing(format!(
-            "ProfileAuthenticatorLock.profile_id {profile_id} does not match the profile {owner} it was sent under"
-        )));
-    }
+    )? {
+        None => owner,
+        Some(stated) if stated == owner => stated,
+        Some(stated) => {
+            return Err(missing(format!(
+                "ProfileAuthenticatorLock.profile_id {stated} does not match the profile {owner} it was sent under"
+            )));
+        }
+    };
+
     Ok(ProfileAuthenticatorLock {
         authenticator_id: id!(
             AuthenticatorId,
@@ -142,7 +152,11 @@ pub fn profile_authenticator_lock(
             "ProfileAuthenticatorLock.authenticator_id"
         )?,
         profile_id,
-        profile_key_generation_id: KeyGenerationId::new(&lock.profile_key_generation_id),
+        profile_key_generation_id: if lock.profile_key_generation_id.is_empty() {
+            owner_generation.clone()
+        } else {
+            KeyGenerationId::new(&lock.profile_key_generation_id)
+        },
         encrypted_storable_profile_seed: lock.encrypted_storable_profile_seed.clone(),
         encrypted_high_security_profile_seed: lock.encrypted_high_security_profile_seed.clone(),
     })
@@ -172,13 +186,14 @@ pub fn vault_profile_lock(
 
 fn profile(p: &heyl_proto::SyncUpdateProfile) -> Result<Profile, ApiError> {
     let id = id!(ProfileId, &p.id, "SyncUpdateProfile.id")?;
+    let generation = KeyGenerationId::new(&p.key_generation_id);
     Ok(Profile {
         id,
-        key_generation_id: KeyGenerationId::new(&p.key_generation_id),
+        key_generation_id: generation.clone(),
         authenticator_locks: p
             .authenticator_locks
             .iter()
-            .map(|l| profile_authenticator_lock(l, id))
+            .map(|l| profile_authenticator_lock(l, id, &generation))
             .collect::<Result<_, _>>()?,
         public_keys: ProfilePublicKeys {
             high_security_identity_sig: opt_verifying_key(&p.high_security_identity_sig_pub_key),

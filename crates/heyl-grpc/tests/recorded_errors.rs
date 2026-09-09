@@ -32,26 +32,26 @@ fn status_from(fixture: &str) -> tonic::Status {
         .expect("grpc-status is a number");
     let message = header(fixture, "grpc-message").unwrap_or_default();
 
-    let mut status = tonic::Status::new(tonic::Code::from_i32(code), message);
+    // Built from a header map, exactly as tonic does off the wire.
+    //
+    // An earlier version assembled the Status by hand with `insert_bin`, which
+    // put the details somewhere the real client never reads them: the tests
+    // passed while the shipped path discarded every DomainError code.
+    let mut headers = http::HeaderMap::new();
+    headers.insert("grpc-status", code.to_string().parse().expect("valid"));
+    headers.insert(
+        "grpc-message",
+        message
+            .parse()
+            .unwrap_or_else(|_| "".parse().expect("valid")),
+    );
     if let Some(details) = header(fixture, "grpc-status-details-bin") {
-        // The header is base64 in the recording; tonic wants the raw bytes and
-        // re-encodes them itself, because the key ends in `-bin`.
-        let raw = base64_decode(&details);
-        status.metadata_mut().insert_bin(
-            heyl_grpc::status::DETAILS_KEY,
-            tonic::metadata::MetadataValue::from_bytes(&raw),
+        headers.insert(
+            "grpc-status-details-bin",
+            details.parse().expect("valid header value"),
         );
     }
-    status
-}
-
-/// The recordings use the standard alphabet, unpadded.
-fn base64_decode(raw: &str) -> Vec<u8> {
-    use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD_NO_PAD
-        .decode(raw)
-        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(raw))
-        .expect("fixture holds valid base64")
+    tonic::Status::from_header_map(&headers).expect("a status the wire could produce")
 }
 
 /// `sync-unauthenticated`: a valid `client-type` but no `authorization`.

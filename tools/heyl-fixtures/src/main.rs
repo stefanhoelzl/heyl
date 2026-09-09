@@ -53,6 +53,14 @@ enum Command {
         #[arg(long)]
         authenticator: Option<String>,
 
+        /// Write the exact gRPC-Web request frame here instead of sending it.
+        ///
+        /// Lets the identical bytes be replayed with curl under different
+        /// `client-type` headers, which takes our whole transport stack out of
+        /// the picture when deciding what the backend actually said.
+        #[arg(long)]
+        dump_request: Option<std::path::PathBuf>,
+
         /// Do not attach a self-granted session unlock.
         ///
         /// `finishChallenge` always sends one, but it is the part of the
@@ -132,19 +140,21 @@ fn main() -> std::process::ExitCode {
         Command::ProbeSigning {
             client_type,
             authenticator,
+            dump_request,
             no_unlock,
             corrupt_signature,
             only,
             delay,
-        } => runtime.block_on(probe::run(
-            &cli.endpoint,
-            &client_type,
-            authenticator.as_deref(),
+        } => runtime.block_on(probe::run(&probe::ProbeOptions {
+            endpoint: &cli.endpoint,
+            client_type: &client_type,
+            authenticator_override: authenticator.as_deref(),
+            dump_request: dump_request.as_deref(),
             no_unlock,
             corrupt_signature,
-            only.as_deref(),
-            delay,
-        )),
+            only: only.as_deref(),
+            delay_secs: delay,
+        })),
         Command::Describe => runtime.block_on(probe::describe(&cli.endpoint)),
         Command::ProbeLongPoll { client_type } => {
             runtime.block_on(probe::long_poll(&cli.endpoint, &client_type))

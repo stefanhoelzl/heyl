@@ -128,16 +128,111 @@ fn describe_charset(s: &str) -> String {
     kinds.join(", ")
 }
 
+/// What to vary in one probe run.
+///
+/// A struct rather than eight positional arguments: every field is a knob for
+/// isolating one variable, and they accumulate as hypotheses do.
+pub struct ProbeOptions<'a> {
+    /// Backend endpoint.
+    pub endpoint: &'a str,
+    /// The `client-type` header to send.
+    pub client_type: &'a str,
+    /// Sign for a different authenticator id than the `BACKUP_CODE` one.
+    pub authenticator_override: Option<&'a str>,
+    /// Write the request frame here instead of sending it.
+    pub dump_request: Option<&'a std::path::Path>,
+    /// Omit the self-granted session unlock.
+    pub no_unlock: bool,
+    /// Flip a bit in the signature.
+    pub corrupt_signature: bool,
+    /// Try only this session type.
+    pub only: Option<&'a str>,
+    /// Seconds between attempts.
+    pub delay_secs: u64,
+}
+
+/// One attempt: fresh challenge, derived seed, signature, `CreateTokens`.
+///
+/// Split out of [`run`] so the sweep reads as a sweep. Returns the row to
+/// print, and whether the backend accepted it.
+async fn attempt(
+    api: &GrpcClient,
+    opts: &ProbeOptions<'_>,
+    email: &str,
+    code: &str,
+    session_type: SessionType,
+    encoding: ChallengeEncoding,
+) -> Result<(String, bool), String> {
+    // A fresh challenge per attempt: a challenge is single-use, and reusing
+    // one would confuse "rejected signature" with "stale challenge".
+    let challenge = api
+        .create_challenge(email)
+        .await
+        .map_err(|e| format!("CreateChallenge failed: {e}"))?;
+
+    let (mut authenticator_id, secret) = recovery_authenticator(&challenge)
+        .ok_or_else(|| "this account has no BACKUP_CODE authenticator".to_owned())?;
+    let seed = derive(code, secret)?;
+
+    if let Some(id) = opts.authenticator_override {
+        authenticator_id =
+            heyl_domain::AuthenticatorId::parse(id).map_err(|e| format!("--authenticator: {e}"))?;
+    }
+
+    let signature = heyl_domain::sign_challenge(&seed, &challenge.challenge, encoding)
+        .map_err(|e| format!("signing: {e}"))?;
+    let mut response = signature.as_bytes().to_vec();
+    if opts.corrupt_signature {
+        response[0] ^= 0x01;
+    }
+
+    if let Some(path) = opts.dump_request {
+        let frame = encode_create_tokens_frame(
+            authenticator_id,
+            &challenge.challenge,
+            &response,
+            session_type,
+        );
+        std::fs::write(path, &frame).map_err(|e| format!("writing {}: {e}", path.display()))?;
+        return Ok((
+            format!(
+                "wrote {} bytes to {} (not sent)",
+                frame.len(),
+                path.display()
+            ),
+            false,
+        ));
+    }
+
+    match api
+        .create_tokens(
+            authenticator_id,
+            &challenge.challenge,
+            &response,
+            session_type,
+            if opts.no_unlock {
+                None
+            } else {
+                Some(unlock_grant(&seed).0)
+            },
+        )
+        .await
+    {
+        Ok(_) => Ok(("ACCEPTED".to_owned(), true)),
+        Err(e) => Ok((format!("rejected: {e}"), false)),
+    }
+}
+
 /// Run the probe.
-pub async fn run(
-    endpoint: &str,
-    client_type: &str,
-    authenticator_override: Option<&str>,
-    no_unlock: bool,
-    corrupt_signature: bool,
-    only: Option<&str>,
-    delay_secs: u64,
-) -> Result<(), String> {
+pub async fn run(opts: &ProbeOptions<'_>) -> Result<(), String> {
+    // The rest of the knobs are read by `attempt`, from `opts` directly.
+    let ProbeOptions {
+        endpoint,
+        client_type,
+        only,
+        delay_secs,
+        ..
+    } = *opts;
     let email = std::env::var("HEYL_EMAIL")
         .map_err(|_| "set HEYL_EMAIL (try running under `secrets-env`)".to_owned())?;
     let code = std::env::var("HEYL_RECOVERY_CODE")
@@ -185,71 +280,33 @@ pub async fn run(
         }
     };
 
+    let candidates_first = candidates[0];
     for session_type in candidates {
         for encoding in ChallengeEncoding::CANDIDATES {
-            let challenge = api
-                .create_challenge(&email)
-                .await
-                .map_err(|e| format!("CreateChallenge failed: {e}"))?;
-
-            let (mut authenticator_id, secret) = recovery_authenticator(&challenge)
-                .ok_or_else(|| "this account has no BACKUP_CODE authenticator".to_owned())?;
-            let seed = derive(&code, secret)?;
-
-            if let Some(id) = authenticator_override {
-                authenticator_id = heyl_domain::AuthenticatorId::parse(id)
-                    .map_err(|e| format!("--authenticator: {e}"))?;
-            }
-
-            let Ok(signature) = heyl_domain::sign_challenge(&seed, &challenge.challenge, encoding)
-            else {
-                // Ruled out for free: report it once, against the first
-                // session type, and do not spend a request on it.
-                if session_type == SessionType::ALL[0] {
-                    eprintln!(
-                        "  {:<24} {:<10} ruled out without a network call: the challenge is not \
-                         valid {}",
-                        "(any)",
-                        encoding.name(),
-                        encoding.name()
-                    );
-                }
-                continue;
-            };
-
             if sent > 0 {
                 tokio::time::sleep(Duration::from_secs(delay_secs)).await;
             }
+
+            let (outcome, ok) =
+                match attempt(&api, opts, &email, &code, session_type, encoding).await {
+                    Ok(result) => result,
+                    Err(e) if e.starts_with("signing: ") => {
+                        if session_type == candidates_first {
+                            eprintln!(
+                                "  {:<24} {:<10} ruled out without a network call: {e}",
+                                "(any)",
+                                encoding.name()
+                            );
+                        }
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                };
+
             sent += 1;
-
-            let mut response = signature.as_bytes().to_vec();
-            if corrupt_signature {
-                response[0] ^= 0x01;
+            if ok {
+                accepted.push((session_type, encoding));
             }
-
-            let outcome = match api
-                .create_tokens(
-                    authenticator_id,
-                    &challenge.challenge,
-                    &response,
-                    session_type,
-                    // The same request shape `heyl login` sends. Omitting the
-                    // grant would vary two things at once.
-                    if no_unlock {
-                        None
-                    } else {
-                        Some(unlock_grant(&seed).0)
-                    },
-                )
-                .await
-            {
-                Ok(_) => {
-                    accepted.push((session_type, encoding));
-                    "ACCEPTED".to_owned()
-                }
-                Err(e) => format!("rejected: {e}"),
-            };
-
             eprintln!(
                 "  {:<24} {:<10} {outcome}",
                 session_type.name(),
@@ -449,4 +506,45 @@ pub async fn long_poll(endpoint: &str, client_type: &str) -> Result<(), String> 
         ),
     }
     Ok(())
+}
+
+/// Hand-encode a `CreateTokensRequest` inside a gRPC-Web data frame.
+///
+/// Field numbers from `credential_service.proto`: `authenticator_id` = 2,
+/// `challenge` = 3, `response` = 4, `session_type` = 6. No unlock, so the
+/// request stays small and the *response* is the only thing under test.
+fn encode_create_tokens_frame(
+    authenticator_id: heyl_domain::AuthenticatorId,
+    challenge: &str,
+    response: &[u8],
+    session_type: SessionType,
+) -> Vec<u8> {
+    fn varint(mut n: u64, out: &mut Vec<u8>) {
+        loop {
+            let byte = u8::try_from(n & 0x7f).unwrap_or(0);
+            n >>= 7;
+            if n == 0 {
+                out.push(byte);
+                return;
+            }
+            out.push(byte | 0x80);
+        }
+    }
+    fn field(tag: u64, bytes: &[u8], out: &mut Vec<u8>) {
+        varint(tag << 3 | 2, out);
+        varint(bytes.len() as u64, out);
+        out.extend_from_slice(bytes);
+    }
+
+    let mut msg = Vec::new();
+    field(2, authenticator_id.to_string().as_bytes(), &mut msg);
+    field(3, challenge.as_bytes(), &mut msg);
+    field(4, response, &mut msg);
+    varint(6 << 3, &mut msg);
+    varint(session_type as u64, &mut msg);
+
+    let mut frame = vec![0u8];
+    frame.extend_from_slice(&u32::try_from(msg.len()).unwrap_or(0).to_be_bytes());
+    frame.extend_from_slice(&msg);
+    frame
 }

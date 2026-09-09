@@ -90,13 +90,23 @@ fn is_truncated_response(message: &str) -> bool {
 /// "log in" and the other means "your token is no longer valid".
 #[must_use]
 pub fn to_api_error(status: &tonic::Status) -> ApiError {
-    // `grpc-status-details-bin` ends in `-bin`, so tonic classifies it as
-    // binary metadata and base64-decodes it for us.
-    let detail = status
-        .metadata()
-        .get_bin(DETAILS_KEY)
-        .and_then(|v| v.to_bytes().ok())
-        .and_then(|bytes| decode_details(&bytes));
+    // `status.details()`, **not** `metadata().get_bin(DETAILS_KEY)`.
+    //
+    // tonic consumes `grpc-status-details-bin` while parsing the header map
+    // and exposes the decoded bytes here; it does not leave the entry in the
+    // metadata. Reading the metadata therefore always found nothing, and every
+    // heylogin `DomainError` code was silently discarded — which is the one
+    // piece of diagnostic the backend actually gives us.
+    //
+    // The metadata lookup is kept as a fallback for a status assembled by hand
+    // rather than parsed off the wire.
+    let detail = decode_details(status.details()).or_else(|| {
+        status
+            .metadata()
+            .get_bin(DETAILS_KEY)
+            .and_then(|v| v.to_bytes().ok())
+            .and_then(|bytes| decode_details(&bytes))
+    });
     let domain_code = detail.as_ref().map(|d| d.code);
 
     // Prefer heylogin's own user-facing title: `grpc-message` is often just

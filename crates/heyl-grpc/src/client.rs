@@ -1,19 +1,25 @@
-//! The `HeylApi` implementation.
+//! The transport: a gRPC-Web client that sends what it is given.
+//!
+//! **Stateless.** It holds no token, no session and no retry policy — a
+//! [`crate::Request`] carries everything a call needs, and the generated
+//! [`crate::HeyloginApi`] impl is a thin forward per RPC. Policy that used to
+//! live here (token rotation, retrying an idempotent read) moved up to
+//! [`crate::DomainApi`], because a raw layer that quietly re-sends or
+//! re-authenticates is not raw (DESIGN.md §4).
+//!
+//! Calls go through `tonic::client::Grpc` with the method path from the
+//! descriptor set rather than through the generated per-service clients. That
+//! keeps the generator honest: it emits the path verbatim from the schema and
+//! never has to reproduce tonic's name mangling.
 
-use std::sync::Arc;
-
-use heyl_domain::{
-    Authenticator, AuthenticatorId, Challenge, SessionType, SyncSnapshot, Tokens, VaultCommits,
-    VaultId,
-};
-use heyl_ports::{ApiError, HeylApi, api::SessionUnlockGrant};
-use tokio::sync::RwLock;
-use tonic::{Request, body::Body};
+use heyl_ports::ApiError;
+use tokio_stream::StreamExt as _;
+use tonic::{body::Body, client::Grpc};
 use tower::Layer as _;
 
-use crate::{map, status::to_api_error};
+use crate::{Request, request::ClientContext, status::to_api_error};
 
-/// How to reach heylogin, and how to identify ourselves.
+/// How to reach heylogin, and the identity to default to.
 #[derive(Debug, Clone)]
 pub struct GrpcConfig {
     /// Base URL, e.g. `https://heylogin.app/api/v1`.
@@ -33,18 +39,29 @@ pub struct GrpcConfig {
     pub user_agent: String,
 }
 
+impl GrpcConfig {
+    /// The identity this config describes, with no token yet.
+    #[must_use]
+    pub fn context(&self) -> ClientContext {
+        ClientContext {
+            client_id: self.client_id.clone(),
+            client_type: self.client_type.clone(),
+            client_version: self.client_version.clone(),
+            user_agent: self.user_agent.clone(),
+            access_token: None,
+        }
+    }
+}
+
 impl Default for GrpcConfig {
     fn default() -> Self {
+        let context = ClientContext::default();
         Self {
             endpoint: crate::DEFAULT_ENDPOINT.to_owned(),
-            client_version: env!("CARGO_PKG_VERSION").to_owned(),
-            client_type: crate::CLIENT_TYPE_CLI.to_owned(),
-            client_id: uuid::Uuid::new_v4().to_string(),
-            user_agent: format!(
-                "heyl/{} (+{})",
-                env!("CARGO_PKG_VERSION"),
-                env!("CARGO_PKG_REPOSITORY")
-            ),
+            client_version: context.client_version,
+            client_type: context.client_type,
+            client_id: context.client_id,
+            user_agent: context.user_agent,
         }
     }
 }
@@ -91,29 +108,10 @@ where
     type BodyError = E;
 }
 
-/// What a completed phone-swipe channel hands back (§5).
-#[derive(Debug, Clone)]
-pub struct LongPollChallenge {
-    /// The account.
-    pub user_id: String,
-    /// The challenge to sign.
-    pub challenge: String,
-    /// Which authenticator the phone answered with.
-    pub authenticator_id: heyl_domain::AuthenticatorId,
-    /// `asymEncrypt(ourLongPollPubKey, seed)`.
-    pub encrypted_secret: Vec<u8>,
-    /// Whether this was a registration rather than a login. The client only
-    /// self-grants an unlock when it is *not* a registration.
-    pub registration: bool,
-}
-
 /// A gRPC-Web client for heylogin.
 pub struct GrpcClient<T = Transport> {
     config: GrpcConfig,
     transport: T,
-    /// The bearer token, if we have one. Behind a lock because `RefreshToken`
-    /// replaces it mid-flight and every later call must pick up the new value.
-    token: Arc<RwLock<Option<String>>>,
 }
 
 impl<T> GrpcClient<T> {
@@ -127,12 +125,14 @@ impl<T> GrpcClient<T> {
     /// The transport sits *below* tonic-web's framing, so what a recorder sees
     /// and a replayer supplies is the gRPC-Web wire body — the same bytes the
     /// backend sent.
-    pub fn with_transport(config: GrpcConfig, transport: T) -> Self {
-        Self {
-            config,
-            transport,
-            token: Arc::new(RwLock::new(None)),
-        }
+    pub const fn with_transport(config: GrpcConfig, transport: T) -> Self {
+        Self { config, transport }
+    }
+
+    /// The identity this client was configured with.
+    #[must_use]
+    pub fn context(&self) -> ClientContext {
+        self.config.context()
     }
 }
 
@@ -189,7 +189,6 @@ impl GrpcClient {
         Ok(Self {
             config,
             transport: tonic_web::GrpcWebClientLayer::new().layer(http),
-            token: Arc::new(RwLock::new(None)),
         })
     }
 }
@@ -198,51 +197,6 @@ impl<T: Transportable> GrpcClient<T>
 where
     T::Future: Send,
 {
-    fn transport(&self) -> T {
-        self.transport.clone()
-    }
-
-    /// Attach the metadata every call needs.
-    ///
-    /// `client-type` is mandatory and enum-validated; `client-version` is not
-    /// validated on unauthenticated methods, and we send our real version
-    /// either way rather than claiming to be something we are not.
-    async fn request<M>(&self, message: M) -> Result<Request<M>, ApiError> {
-        self.request_as(message, &self.config.client_type).await
-    }
-
-    /// Build a request that identifies as a specific client type.
-    ///
-    /// Exists for exactly one caller: see [`crate::CLIENT_TYPE_RECOVERY`].
-    async fn request_as<M>(&self, message: M, client_type: &str) -> Result<Request<M>, ApiError> {
-        let mut request = Request::new(message);
-        let meta = request.metadata_mut();
-
-        let insert = |meta: &mut tonic::metadata::MetadataMap, key: &'static str, value: &str| {
-            value
-                .parse()
-                .map(|v| meta.insert(key, v))
-                .map_err(|_| ApiError::Transport {
-                    reason: format!("{key} is not a valid header value"),
-                })
-        };
-
-        insert(meta, "client-id", &self.config.client_id)?;
-        insert(meta, "client-type", client_type)?;
-        insert(meta, "client-version", &self.config.client_version)?;
-        insert(meta, "user-agent", &self.config.user_agent)?;
-
-        if let Some(token) = self.token.read().await.as_deref() {
-            // `backend <token>`, **not** `Bearer <token>`. heylogin's scheme
-            // namespaces the credential by which service it is for, and the
-            // real client joins several with commas
-            // (`backend …,auditlog-write …`). Confirmed in the extension's
-            // `EspbServiceClientFactory.ts`; HEYLOGIN_SPEC §1 says so too.
-            insert(meta, "authorization", &format!("backend {token}"))?;
-        }
-        Ok(request)
-    }
-
     fn origin(&self) -> Result<http::Uri, ApiError> {
         self.config
             .endpoint
@@ -252,284 +206,96 @@ where
             })
     }
 
-    /// `CredentialService.CreateLongPollChannelChallenge` — the phone-swipe
-    /// channel (§5).
+    /// Turn our request into tonic's, attaching the metadata it carries.
     ///
-    /// **Long-polls**: the call does not return until a phone completes the
-    /// channel or the backend gives up. Not on `HeylApi` yet — the phone-swipe
-    /// flow is M4, and this exists so its reachability can be established
-    /// before the port grows a method for it.
+    /// `client-type` is mandatory and enum-validated; `client-version` is not
+    /// validated on unauthenticated methods, and we send our real version
+    /// either way rather than claiming to be something we are not.
+    fn tonic_request<M>(request: Request<M>) -> Result<tonic::Request<M>, ApiError> {
+        let insert = |meta: &mut tonic::metadata::MetadataMap, key: &'static str, value: &str| {
+            value
+                .parse()
+                .map(|v| meta.insert(key, v))
+                .map_err(|_| ApiError::Transport {
+                    reason: format!("{key} is not a valid header value"),
+                })
+        };
+
+        let mut out = tonic::Request::new(request.message);
+        let meta = out.metadata_mut();
+        insert(meta, "client-id", &request.client_id)?;
+        insert(meta, "client-type", &request.client_type)?;
+        insert(meta, "client-version", &request.client_version)?;
+        insert(meta, "user-agent", &request.user_agent)?;
+
+        if let Some(token) = request.access_token.as_deref() {
+            // `backend <token>`, **not** `Bearer <token>`. heylogin's scheme
+            // namespaces the credential by which service it is for, and the
+            // real client joins several with commas
+            // (`backend …,auditlog-write …`). Confirmed in the extension's
+            // `EspbServiceClientFactory.ts`; HEYLOGIN_SPEC §1 says so too.
+            insert(meta, "authorization", &format!("backend {token}"))?;
+        }
+        Ok(out)
+    }
+
+    fn grpc(&self) -> Result<Grpc<T>, ApiError> {
+        Ok(Grpc::with_origin(self.transport.clone(), self.origin()?))
+    }
+
+    /// One unary call. The generated impl is 122 forwards to this.
     ///
     /// # Errors
     /// [`ApiError`] on any transport or backend failure.
-    pub async fn create_long_poll_channel_challenge(
-        &self,
-        public_key_hash: &str,
-    ) -> Result<LongPollChallenge, ApiError> {
-        // Built inline rather than through `client_for!`: that macro is
-        // declared further down this file, and a macro_rules! must precede its
-        // use within one module.
-        let mut client =
-            heyl_proto::credential_service_client::CredentialServiceClient::with_origin(
-                self.transport(),
-                self.origin()?,
-            );
-        let request = self
-            .request(heyl_proto::CreateLongPollChannelChallengeRequest {
-                public_key_hash: public_key_hash.to_owned(),
-            })
-            .await?;
-        let response = client
-            .create_long_poll_channel_challenge(request)
-            .await
-            .map_err(|s| to_api_error(&s))?;
-        let r = response.get_ref();
-        let authenticator =
-            r.authenticator
-                .as_ref()
-                .ok_or_else(|| ApiError::MalformedResponse {
-                    what: "CreateLongPollChannelChallengeResponse.authenticator".to_owned(),
-                })?;
-
-        // The reply is an `AuthenticatorReply` protobuf whose
-        // `encrypted_secret_reply.encrypted_secret` is
-        // `asymEncrypt(ourPubKey, seed)`.
-        let reply = <heyl_proto::AuthenticatorReply as prost::Message>::decode(
-            &*r.authenticator_reply.clone(),
-        )
-        .map_err(|_| ApiError::MalformedResponse {
-            what: "authenticator_reply is not an AuthenticatorReply".to_owned(),
+    pub async fn unary<M, R>(&self, request: Request<M>, path: &'static str) -> Result<R, ApiError>
+    where
+        M: prost::Message + Send + Sync + 'static,
+        R: prost::Message + Default + Send + Sync + 'static,
+    {
+        let mut grpc = self.grpc()?;
+        grpc.ready().await.map_err(|e| ApiError::Transport {
+            reason: e.into().to_string(),
         })?;
-        let Some(heyl_proto::authenticator_reply::ReplyOneof::EncryptedSecretReply(secret)) =
-            reply.reply_oneof
-        else {
-            return Err(ApiError::MalformedResponse {
-                what: "authenticator_reply carries no encrypted secret".to_owned(),
-            });
-        };
-
-        Ok(LongPollChallenge {
-            user_id: r.user_id.clone(),
-            challenge: r.challenge.clone(),
-            authenticator_id: heyl_domain::AuthenticatorId::parse(&authenticator.id).map_err(
-                |_| ApiError::MalformedResponse {
-                    what: "long-poll authenticator id is not a UUID".to_owned(),
-                },
-            )?,
-            encrypted_secret: secret.encrypted_secret,
-            registration: secret.registration,
-        })
-    }
-}
-
-/// How many times an idempotent read is retried after a transport fault.
-const READ_RETRIES: usize = 3;
-
-/// Retry `call` while it fails at the transport layer.
-///
-/// heylogin sits behind a proxy that intermittently drops the gRPC-Web trailer
-/// frame, which surfaces as `missing grpc-status trailer` on a response that
-/// otherwise arrived. It is not correlated with a particular RPC or payload —
-/// the same call succeeds on the next attempt.
-///
-/// Only ever wrapped around **idempotent reads**. `CreateTokens` is not one:
-/// a challenge is single-use, so retrying it would answer a spent challenge
-/// and turn a transport blip into a confusing credential error.
-async fn retrying_read<T, F, Fut>(mut call: F) -> Result<T, ApiError>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, ApiError>>,
-{
-    let mut last = None;
-    for attempt in 0..=READ_RETRIES {
-        match call().await {
-            Ok(value) => return Ok(value),
-            // Only a transport fault is worth another go. A backend error is
-            // an answer, and repeating the question will not change it.
-            Err(ApiError::Transport { reason }) => {
-                if attempt < READ_RETRIES {
-                    let backoff = 150_u64 << u32::try_from(attempt).unwrap_or(0);
-                    tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
-                }
-                last = Some(ApiError::Transport { reason });
-            }
-            Err(other) => return Err(other),
-        }
-    }
-    Err(last.unwrap_or(ApiError::Transport {
-        reason: "read failed with no recorded cause".to_owned(),
-    }))
-}
-
-macro_rules! client_for {
-    ($self:ident, $client:path) => {{
-        let origin = $self.origin()?;
-        <$client>::with_origin($self.transport(), origin)
-    }};
-}
-
-#[async_trait::async_trait]
-impl<T> HeylApi for GrpcClient<T>
-where
-    T: Transportable + Sync,
-    T::Future: Send,
-{
-    async fn set_access_token(&self, token: Option<&str>) {
-        *self.token.write().await = token.map(str::to_owned);
+        let request = Self::tonic_request(request)?;
+        let path = http::uri::PathAndQuery::from_static(path);
+        grpc.unary(request, path, tonic_prost::ProstCodec::default())
+            .await
+            .map(tonic::Response::into_inner)
+            .map_err(|s| to_api_error(&s))
     }
 
-    async fn create_challenge(&self, email: &str) -> Result<Challenge, ApiError> {
-        retrying_read(|| async {
-            let mut client = client_for!(
-                self,
-                heyl_proto::credential_service_client::CredentialServiceClient<_>
-            );
-            let request = self
-                .request(heyl_proto::CreateChallengeRequest {
-                    email: email.to_owned(),
-                    ..Default::default()
-                })
-                .await?;
-            let response = client
-                .create_challenge(request)
-                .await
-                .map_err(|s| to_api_error(&s))?;
-            map::challenge(response.get_ref())
-        })
-        .await
-    }
-
-    async fn create_tokens(
+    /// One server-streaming call — `StreamingSync`, and only that.
+    ///
+    /// # Errors
+    /// [`ApiError`] on any transport or backend failure. Failures *within* the
+    /// stream surface as items.
+    pub async fn server_streaming<M, R>(
         &self,
-        authenticator_id: AuthenticatorId,
-        challenge: &str,
-        response: &[u8],
-        session_type: SessionType,
-        unlock: Option<SessionUnlockGrant>,
-    ) -> Result<Tokens, ApiError> {
-        let mut client = client_for!(
-            self,
-            heyl_proto::credential_service_client::CredentialServiceClient<_>
-        );
-        let request = self
-            .request_as(
-                heyl_proto::CreateTokensRequest {
-                    authenticator_id: authenticator_id.to_string(),
-                    challenge: challenge.to_owned(),
-                    response: response.to_vec(),
-                    session_unlock: unlock.map(|u| {
-                        heyl_proto::create_tokens_request::SessionUnlock {
-                            encrypted_secret: u.encrypted_secret,
-                            expires_at: Some(prost_types::Timestamp {
-                                seconds: u.expires_at.as_millisecond().div_euclid(1000),
-                                nanos: i32::try_from(
-                                    u.expires_at.as_millisecond().rem_euclid(1000),
-                                )
-                                .unwrap_or(0)
-                                    * 1_000_000,
-                            }),
-                            // A single-use grant would be consumed by the first Sync,
-                            // which is exactly the read the grant exists to enable (§6).
-                            single_use: false,
-                        }
-                    }),
-                    session_type: map::session_type(session_type) as i32,
-                },
-                // A recovery is the one call that does not identify as
-                // CLIENT_TYPE_CLI, because heylogin refuses it if it does. Keyed on
-                // the session type rather than plumbed down from the app, so
-                // `heyl-app` never has to know a client type exists.
-                if session_type == SessionType::BackupCode {
-                    crate::CLIENT_TYPE_RECOVERY
-                } else {
-                    &self.config.client_type
-                },
-            )
-            .await?;
-        let response = client
-            .create_tokens(request)
+        request: Request<M>,
+        path: &'static str,
+    ) -> Result<crate::MessageStream<R>, ApiError>
+    where
+        M: prost::Message + Send + Sync + 'static,
+        R: prost::Message + Default + Send + Sync + 'static,
+    {
+        let mut grpc = self.grpc()?;
+        grpc.ready().await.map_err(|e| ApiError::Transport {
+            reason: e.into().to_string(),
+        })?;
+        let request = Self::tonic_request(request)?;
+        let path = http::uri::PathAndQuery::from_static(path);
+        let stream = grpc
+            .server_streaming(request, path, tonic_prost::ProstCodec::default())
             .await
+            .map(tonic::Response::into_inner)
             .map_err(|s| to_api_error(&s))?;
-        map::tokens(response.get_ref())
-    }
 
-    async fn refresh_token(&self) -> Result<String, ApiError> {
-        let mut client = client_for!(
-            self,
-            heyl_proto::credential_service_client::CredentialServiceClient<_>
-        );
-        let request = self.request(heyl_proto::RefreshTokenRequest {}).await?;
-        let response = client
-            .refresh_token(request)
-            .await
-            .map_err(|s| to_api_error(&s))?;
-        response
-            .get_ref()
-            .new_access_token
-            .as_ref()
-            .map(|t| t.token.clone())
-            .ok_or_else(|| ApiError::MalformedResponse {
-                what: "RefreshTokenResponse.new_access_token".to_owned(),
-            })
-    }
-
-    async fn sync(&self) -> Result<SyncSnapshot, ApiError> {
-        retrying_read(|| async {
-            let mut client =
-                client_for!(self, heyl_proto::sync_service_client::SyncServiceClient<_>);
-            let request = self.request(heyl_proto::SyncRequest::default()).await?;
-            let response = client.sync(request).await.map_err(|s| to_api_error(&s))?;
-            let update = response.get_ref().sync_update.as_ref().ok_or_else(|| {
-                ApiError::MalformedResponse {
-                    what: "SyncResponse.sync_update".to_owned(),
-                }
-            })?;
-            map::sync_update(update)
-        })
-        .await
-    }
-
-    async fn list_authenticators(&self) -> Result<Vec<Authenticator>, ApiError> {
-        retrying_read(|| async {
-            let mut client = client_for!(
-                self,
-                heyl_proto::authenticator_service_client::AuthenticatorServiceClient<_>
-            );
-            let request = self
-                .request(heyl_proto::ListAuthenticatorsRequest::default())
-                .await?;
-            let response = client.list(request).await.map_err(|s| to_api_error(&s))?;
-            response
-                .get_ref()
-                .authenticators
-                .iter()
-                .filter_map(|a| map::authenticator(a).transpose())
-                .collect()
-        })
-        .await
-    }
-
-    async fn list_commits(&self, vault: VaultId) -> Result<VaultCommits, ApiError> {
-        retrying_read(|| async {
-            let mut client = client_for!(
-                self,
-                heyl_proto::vault_service_client::VaultServiceClient<_>
-            );
-            let request = self
-                .request(heyl_proto::ListCommitsRequest {
-                    vault_id: vault.to_string(),
-                    // Nothing is cached, so a lock the backend omits as "you
-                    // already have it" would read as a failure (decision 29).
-                    force_locks: true,
-                    ..Default::default()
-                })
-                .await?;
-            let response = client
-                .list_commits(request)
-                .await
-                .map_err(|s| to_api_error(&s))?;
-            map::vault_commits(response.get_ref())
-        })
-        .await
+        // `tonic::Streaming` is already a `Stream`; boxing it here rather than
+        // exposing it is what lets a replay stub yield recorded messages
+        // without owning a transport.
+        Ok(Box::pin(stream.map(|item| match item {
+            Ok(message) => Ok(message),
+            Err(status) => Err(to_api_error(&status)),
+        })))
     }
 }

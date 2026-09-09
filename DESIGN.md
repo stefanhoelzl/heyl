@@ -269,6 +269,32 @@ gRPC from a fake, and the recorded exchanges in `tests/fixtures/protocol/` are r
 fake implementation of it. `heyl-app` depends on the port traits, not on `tokio`; the runtime
 lives in `heyl-cli`.
 
+**Below that port, two layers rather than one** — added at M3, because the client had a
+use-case-shaped view of heylogin and no statement of what heylogin's API *is*:
+
+```
+heyl-app ──uses──► heyl_ports::HeylApi      domain types, use-case shaped, ~12 methods
+                        ▲
+                   DomainApi<A>             the mapping, and the policy a raw layer must not have
+                        ▲
+                   HeyloginApi              prost types, 123 methods, generated
+                        ▲
+                   GrpcClient               transport, stateless
+```
+
+`HeyloginApi` is generated from `descriptors/heylogin.binpb` by `heyl-grpc/build.rs`: one method
+per RPC, each defaulting to an error naming its own path, so a stub implements the two it
+exercises and inherits 121. **Nothing is implicit at that layer** — `client-type`, `client-id`,
+`client-version`, `user-agent` and the bearer token are all fields on a `Request<T>`, not state
+hidden in the client. That is what makes it worth recording and replaying, and it is why
+`CLIENT_TYPE_RECOVERY` is now a value at its one call site rather than a private method on the
+transport.
+
+`DomainApi<A: HeyloginApi>` holds what a raw layer must not: the wire→domain mapping, the token
+(the port is deliberately stateful about it, since `RefreshToken` rotates it mid-run), and the
+retry on an idempotent read. Being generic is the point — the port `heyl-app` depends on can be
+driven by something that is not a socket.
+
 **Composition happens once.** `heyl-cli` is the only crate that names an adapter. `heyl-app`
 physically cannot reach `heyl-platform` or `heyl-proto`, because it does not depend on them.
 
@@ -702,6 +728,53 @@ tool that runs unattended.
 | 4 | unlock required / expired |
 | 5 | network or backend error |
 
+### `heyl api` — unsafe by construction, and not shipped
+
+The commands above are the product. `heyl api` is not: it is heylogin's gRPC surface with the
+safety taken off, and it exists because reverse-engineering a protocol needs a way to ask the
+backend a question that no use case has been designed for yet.
+
+**Every one of the 123 RPCs is reachable by name, with no guards.** `CreateTokens` with a
+`BACKUP_CODE` signature performs the destructive recovery `heyl recovery` asks about — except
+nothing asks. `heyl api derive` prints seeds and vault keys to the terminal. A curated denylist
+over 123 methods, most of which nobody has studied, would give confidence proportional to the
+curation rather than to the danger, so there is none. **Point it at a throwaway account.**
+
+That is why it is gated twice: a **default-off cargo feature**, so `prost-reflect` and the
+embedded descriptor are absent from the release dependency graph entirely (a property `cargo tree`
+can check, which `cfg(debug_assertions)` would not give), and `hide = true` so it does not appear
+in `--help` even in a build that has it.
+
+Four subcommands. One makes a call; the other three are pure functions with no network at all,
+and together they close the loop — a login is RPCs plus exactly two pieces of arithmetic:
+
+```
+heyl api call CreateChallenge '{"email":"…"}'      → challenge, secretSalt, Argon2 params
+  heyl api sign-challenge --challenge … --salt …   → signature            (pure)
+heyl api call CreateTokens '{…,"response":"…"}'    → access token
+heyl api call Sync > sync.json                     → the account
+  heyl api derive --sync sync.json --commits …     → seed, profile seeds, vault keys  (pure)
+  heyl api decode --blob … --key …                 → a real heymerge document         (pure)
+```
+
+Nothing is ambient: no keychain is read, and the token is a field on the request. `heyl api call
+Sync --token ''` reproduces `DomainError 30100` against the live backend and `--token bad`
+reproduces 30420 — which is how M0 produced `tests/fixtures/protocol/sync-unauthenticated` and
+`sync-bad-token` by hand, with a shell script.
+
+`heyl api decode` stops at the serialization framing, because heymerge semantics and the content
+schemas belong to the read path. That is deliberate: it exists to print the documents that work
+will be designed against.
+
+Output is **canonical protobuf-JSON** — bytes as base64, enums by name, camelCase `json_name`,
+`Timestamp` as RFC 3339 — via `prost-reflect` over the same committed descriptor set. Not `serde`
+derives on the generated types: those render every `bytes` field as an array of integers, and in
+this schema the bytes are the interesting part. What you read matches what HEYLOGIN_SPEC.md says,
+and what `heyl api call Sync` prints feeds straight back into `heyl api derive --sync`.
+
+Retired by it: `heyl-fixtures probe-signing`, which existed to vary `client-type`, the
+authenticator and the signature on one RPC. `heyl api call` varies all three on any of them.
+
 ### `run`
 
 `heyl run --env-file .env.tpl -- <cmd>` resolves `heyl://<vault>/<item>/<field>`
@@ -855,26 +928,35 @@ actually released.
 | **M0** | ✅ **Codegen viability spike** — both stacks built at full parity from `descriptors/`, protocol settled empirically | Done: gRPC-Web confirmed sole protocol; `CLIENT_TYPE_CLI` accepted; 19/19 services and 123/123 methods generated by both stacks with zero warnings; `Ping` and `DomainError{30100}` verified live; `tonic` chosen on measured criteria | M |
 | **M1** | **Crypto core** — workspace + CI, `heyl-crypto` (§2 primitives, `deriveSecretFromSeed`, every context salt v1 needs) and `heyl-domain` (ids, locks, `Timestamp`, the full key hierarchy) | *proven*: primitives vs upstream vectors, Argon2id vs RFC 9106. *pinned*: every derivation snapshotted per link, regression-only until M2. *enforced*: dependency-graph rules, no `unsafe`, no `cc`/`cmake`/`*-sys`. *built*: full hierarchy, `mlock`ed secret newtypes | M |
 | **M2** | ✅ **`heyl recovery` + hierarchy confirmation** — `heyl-proto`/`heyl-grpc`/`heyl-ports`/`heyl-app`/`heyl-vault`/`heyl-platform`/`heyl-cli`, a self-granted unlock, and `heyl doctor`. The login method changed under it: recovery-code login turned out to be destructive and client-type-gated (§2), so the confirmation was reached with the **phone swipe** | Done: the shipped binary recovers a real account, stores the session in the OS keychain, and a separate `heyl doctor` invocation reports **37 passed, 0 failed** — all eight derivation links across four profiles, each byte-compared against the key heylogin publishes, and all five vaults decrypted | **L** |
-| **M3** | **Read path** — full sync, profile/vault enumeration, serialize + heymerge parse, selector resolution | `heyl list` and `get --field password` work against a real account | **L** |
-| **M4** | **Phone swipe** — long-poll channel, session self-unlock, and the pairing UX. Most of the mechanism already exists from M2: `GrpcClient::create_long_poll_channel_challenge` and the flow in `tools/heyl-fixtures`; M4 promotes it to `heyl login push` and adds the pairing surface | `heyl login push` with a phone; unlock survives to next day 02:00 | M |
-| **M5** | **Session registration** — `SessionMetadata` write, `logout` tombstone, `session list\|revoke` | CLI appears as a named device in the app and is revocable there | M |
-| **M6** | **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy | Full command set; `--format json` stable | M |
-| **M7** | **Distribution** — the binaries already exist: §6's matrix builds all five targets on every pull request and uploads them. What is left is packaging on top of that — `cargo-dist` archives, checksums, build provenance and a curl installer, npm optionalDependencies, PyPI wheels — and the first real version number, since every build until then says `0.0.0 (<sha>)` | `npx`, `uvx` and curl-installer all run the same artifact | M |
-| **M8** | **Hardening** — zeroization audit, fuzz the vault decoder, threat-model review, docs, **crates.io publish** | Ready to use daily | M |
-| **M9** | **FIDO2 login** — CTAP2 `hmac-secret` via `ctap-hid-fido2`, WebAuthn-PRF salt transform, PIN/UV | A FIDO2 key derives the *same* seed as the web app and logs in | M |
-| **M10** | **Device-to-device unlock** — `RequestSessionUnlock` + Sync polling + cancel-on-abort | An unlocked browser session can unlock the CLI; no phone needed | S |
-| **M11** | **Windows support** — the suite is *already* green on Windows CI, both architectures, from §6's matrix, and that retired the compile question rather than the behaviour one. What remains is the five ports against real Windows APIs: Credential Manager rather than a fake `SecretStore`, a real console for hidden input, WER in place of `RLIMIT_CORE`, and `VirtualLock`'s working-set quota — which `process.rs` raises only under `cfg(unix)`, so the memory-locking probe that is *allowed to be fatal* has never been exercised there. No changes above `heyl-platform` | `heyl recovery` and `heyl doctor` run against a real account on Windows | S |
+| **M3** | ✅ **API surface + re-base** — `HeyloginApi` generated from the descriptor set (one method per RPC, all 123), a stateless `GrpcClient`, and `heyl-ports::HeylApi` re-implemented as `DomainApi<A: HeyloginApi>`. Adds the hidden `heyl api` behind a default-off cargo feature | Done: 123 methods generated and callable; a login is hand-drivable through `heyl api` (`call CreateChallenge` → `sign-challenge` → `call CreateTokens`); `recovery`, `doctor` and the offline suite green throughout; `prost-reflect` absent from the release graph | M/L |
+| **M4** | **Corpus** — record and replay at `HeyloginApi` in prost messages: a generated `RecordingApi` decorator and `RecordedApi` stub, `session.json` migrated to messages, one full record per situation, and message-level re-keying | The whole offline suite runs on recorded data, with `account.rs`, `wire_replay.rs` and the frame-level `rekey` machinery deleted | M |
 
-**Critical path: ~~M0~~ → M1 → M2 → M3.** M0 is done. M1 carries the correctness risk but cannot
-retire it: with no oracle available offline, **M2 is where the reverse engineering is first
-confirmed**, which is why M2 now reaches past login to decrypt a single vault and is sized L. M3
-generalises that to the whole read path. M4 and M5 can proceed in parallel with M6 once M3 lands.
+**Still to do, unplanned and unordered.** These were once numbered M3–M11 with drafted exit
+criteria; that was a plan for work nobody had started, and re-deciding it step by step as each is
+reached has been more useful than mechanically shifting the numbers. What remains:
 
-The first genuinely useful build is **M3** — read-only, recovery-code login, no phone flow.
-Worth dogfooding rather than waiting for M8.
+- **Read path** — full sync, profile/vault enumeration, serialize + heymerge parse, selector
+  resolution. `heyl api decode` already prints real documents to design the parser against.
+- **Phone swipe** — long-poll channel, session self-unlock, pairing UX.
+- **Session registration** — `SessionMetadata` write, `logout` tombstone, `session list|revoke`.
+- **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy.
+- **Distribution** — `cargo-dist` binaries, npm, PyPI.
+- **Hardening** — zeroization audit, fuzz the vault decoder, threat-model review, crates.io.
+- **FIDO2 login**, **device-to-device unlock**, **Windows support** — independent of one another
+  and of the core, which is the intent behind the port boundary.
 
-M9 through M11 are independent of one another and can land in any order; none of them touches
-the core, which is the intent behind the port boundary.
+**Critical path: ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → M4 → read path.** M1 carried the correctness
+risk but could not retire it: with no oracle available offline, **M2 is where the reverse
+engineering was first confirmed**, which is why M2 reached past login to decrypt a vault.
+
+M3 was inserted after M2 on the argument that the client had a use-case-shaped port and no
+statement of what heylogin's API actually *is* — so every new capability meant designing a domain
+method before anything could be tried. It also turned out to be the cheapest way to answer
+questions that had been deferred: `heyl api` sends any of the 123 RPCs with any `client-type` and
+any token, which is what `probe-signing` was written to do for one of them.
+
+The first genuinely useful build is the **read path** — read-only, recovery-code login, no phone
+flow. Worth dogfooding rather than waiting for hardening.
 
 ---
 
@@ -887,7 +969,7 @@ the core, which is the intent behind the port boundary.
 | ~~`mlock` released on drop, unlocking pages under live secrets~~ | **Closed** | Present from M1 and invisible: `mlock` is page-granular, so dropping one 32-byte secret unlocked the page others were still using. Found by the cross-platform CI matrix (§6) — Windows' `VirtualUnlock` keeps no lock count and panicked; Linux and macOS had accepted it silently. Fixed by never releasing the lock (§3), with a `/proc/self/smaps` test that fails against the old behaviour. The general lesson is in §4: `region` locks pages, it does not own them. |
 | ~~Static musl artifacts need a C cross-toolchain~~ | **Closed** | Found at M0 (`ring`/`aws-lc-sys` are C), retired at M2 by taking rustls' `CryptoProvider` from `rustls-graviola` instead. No `cc` or `cmake` on any shipped target, so `rustup target add` is enough. The new exposure is graviola itself — see §4. |
 | graviola is a young TLS provider, and excludes pre-~2014 x86 and Raspberry Pi 4 and earlier | Medium | Adopted at M2 to keep §4's pure-Rust claim true of the whole binary. Written by rustls' author over formally-verified s2n-bignum assembly, and it secures only the transport — the vault crypto is `heyl-crypto`. Revisit if a user reports an unsupported CPU, or if `ring` ever ships a pure-Rust build. |
-| gRPC-Web streaming (`StreamingSync`, `LongPollSync`) from a native client is untested | Medium | **M0 did not retire this.** It is M4's exposure; retire it early in M4 rather than at the end. |
+| ~~gRPC-Web streaming from a native client is untested~~ | **Downgraded** | The premise was wrong on two counts, found at M3 by parsing the descriptor set rather than reading method names. **`LongPollSync` is unary** despite its name, and so is `CreateLongPollChannelChallenge` — which is what the phone swipe actually calls. Of 123 methods **exactly one streams**, `SyncService/StreamingSync`, server-streaming, and nothing in the plan needs it (§2 lists realtime sync as a non-goal). It is generated and reachable as `heyl api call StreamingSync`, so the question can be answered in a minute rather than carried as a risk. |
 | A context salt or KDF detail is subtly wrong | Medium | **M1's suite is *not* the guard** — a mistyped context yields stable, self-consistent, wrong keys and the suite stays green. The guard is M2: `CreateTokens` acceptance confirms the login limb, and M2's single vault decrypt confirms the profile/vault limb. Per-link snapshots make the failure name the link. |
 | heymerge entry shape wrong → app misreads the device | Low | Single entry, exclusively-owned key, validated against the app's rendering at M5. |
 | WebAuthn PRF salt transform missed → silently wrong seed | High if unguarded | Replicate `SHA-256("WebAuthn PRF" ‖ 0x00 ‖ salt)`; cross-check against a browser-derived seed at M9. |

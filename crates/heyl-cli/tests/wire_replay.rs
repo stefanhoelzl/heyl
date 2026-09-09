@@ -235,7 +235,15 @@ async fn the_recorded_session_replays_through_the_real_adapter() {
 
     let (replay, keys) = Replay::load();
     let transport = tonic_web::GrpcWebClientLayer::new().layer(replay.clone());
-    let api = heyl_grpc::GrpcClient::with_transport(heyl_grpc::GrpcConfig::default(), transport);
+    let config = heyl_grpc::GrpcConfig::default();
+    let context = config.context();
+    // The port over the raw API, which is how the binary is wired now: the
+    // bytes still come from the fixture, and the mapping under test is the
+    // same code `heyl recovery` runs.
+    let api = heyl_grpc::DomainApi::new(
+        heyl_grpc::GrpcClient::with_transport(config, transport),
+        context,
+    );
 
     let store = MemoryStore::default();
     let terminal = SilentTerminal;

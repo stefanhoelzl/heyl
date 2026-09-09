@@ -20,30 +20,35 @@ Both subcommands need a real account, which is why they are here rather than in
 the test suite. Run them under `secrets-env` so nothing reaches shell history:
 
 ```sh
-secrets-env cargo run -p heyl-fixtures -- probe-signing
+secrets-env cargo run -p heyl-fixtures -- record --out .work/session.json
 ```
 
-### `probe-signing`
+### `probe-signing` — retired at M3
 
-Settles what `CreateTokens` actually verifies. `HEYLOGIN_SPEC.md` §5 reads as
-`Ed25519.sign(challenge)`, but §2 says every signing operation is
-context-prefixed and names no context for this one — so the signed bytes are
-ambiguous between the challenge's UTF-8 and its base64 decoding under either
-alphabet. A wrong choice produces a perfectly valid signature over the wrong
-message, which the backend rejects with no diagnostic pointing at the cause.
+Gone. It existed to settle what `CreateTokens` actually verifies: `HEYLOGIN_SPEC.md`
+§5 reads as `Ed25519.sign(challenge)`, but §2 says every signing operation is
+context-prefixed and names no context for this one, so the signed bytes were
+ambiguous between the challenge's UTF-8 and its base64 decoding. It probed that
+by varying `client-type`, the authenticator id and the signature, on one RPC.
 
-M0 settled the transport by probing rather than reasoning; this does the same
-for the signature. It paces its attempts, because each one submits a
-deliberately wrong signature and heylogin's lockout behaviour on repeated
-failures is unknown.
+`heyl api` does all three as ordinary arguments, on any of the 123 RPCs:
 
-Three outcomes, all informative:
+```sh
+cargo run -p heyl --features api -- api call CreateTokens '{…}' --client-type 100
+```
 
-| result | means |
-|---|---|
-| exactly one accepted | that is the answer — make it the default and pin it in the offline suite's fake |
-| a candidate ruled out with no network call | it cannot decode the challenge, which rules it out for free |
-| none accepted | the hypothesis set is wrong; the next one is a context-prefixed variant, whose context string is not recoverable from the published bundles |
+The answer it found is UTF-8, and it is pinned in `heyl_domain::ChallengeEncoding`
+and in the offline suite.
+
+### `record`
+
+Captures a whole session's gRPC-Web bytes in one pass — challenge, tokens, sync,
+authenticator list, every `ListCommits`. One pass, because a recording is made
+during a real destructive recovery and that opportunity does not repeat without
+pairing a phone again.
+
+The output holds **real key material and a live token**. It is input to `rekey`,
+never something to commit.
 
 ### `rekey`
 
@@ -57,11 +62,14 @@ This exists because the seed alone is full account access (login is just
 `sign(challenge, login_key(seed))`; the recovery code is only a way to reach
 it), so committing the throwaway account's seed would burn it.
 
-**Not yet implemented**: it needs a real recording, which needs the live login
-path, which is blocked on `probe-signing`. CI is not waiting on it — the offline
-suite in `crates/heyl-app/tests/` already builds an equivalent fixture
-synthetically. What `rekey` adds is real heylogin document bytes in place of a
-hand-written envelope.
+It asserts both halves before writing: that the committed test code opens the
+result, and that the real one does not. The second half is what catches a layer
+the re-key forgot — a fixture the account's own code still opens is one that
+still contains it.
+
+**Operates on gRPC-Web frames today.** The corpus milestone moves it to typed
+messages, where re-keying is rewriting fields rather than decoding, editing and
+re-encoding frames — which is most of why it is 600 lines.
 
 **What no fixture can carry.** Evidence that our context salts match
 heylogin's. Re-keyed ciphertexts are made with our own salts, so they prove the

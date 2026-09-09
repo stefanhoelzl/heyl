@@ -27,6 +27,16 @@ pub enum DomainError {
         what: &'static str,
     },
 
+    /// The login challenge could not be read under a candidate encoding.
+    ///
+    /// Evidence rather than a failure: it rules the candidate out with no
+    /// network call (see [`crate::login`]).
+    #[error("challenge is not valid {encoding}")]
+    MalformedChallenge {
+        /// Which candidate encoding was tried.
+        encoding: &'static str,
+    },
+
     /// The profile has been re-keyed since the lock was written.
     ///
     /// Distinct from a decryption failure on purpose: the fix is to re-sync,

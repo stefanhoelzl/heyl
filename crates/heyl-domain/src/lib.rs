@@ -15,6 +15,7 @@ pub mod error;
 pub mod ids;
 pub mod keys;
 pub mod locks;
+pub mod login;
 pub mod sync;
 pub mod time;
 pub mod vault;
@@ -26,9 +27,9 @@ pub use error::DomainError;
 pub use ids::{AuthenticatorId, CommitId, KeyGenerationId, ProfileId, SessionId, VaultId};
 pub use keys::{
     AuthenticatorKeys, HighSecurity, ProfileSeed, ProtectedSecret, Storable, VaultSecret,
-    login_signing_key,
 };
 pub use locks::{ProfileAuthenticatorLock, VaultProfileLock};
+pub use login::{ChallengeEncoding, login_signing_key, sign_challenge};
 pub use sync::{
     Challenge, Commit, Profile, ProfilePublicKeys, Session, SessionUnlock, SyncSnapshot, Tokens,
     VaultCommits, VaultSummary,

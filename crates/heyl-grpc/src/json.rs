@@ -100,6 +100,30 @@ pub fn from_json<M: prost::Message + Default>(
     M::decode(&*dynamic.encode_to_vec()).map_err(|e| fail(e.to_string()))
 }
 
+/// Raw protobuf bytes → JSON, given the message type.
+///
+/// What a migration needs: a recorded response body is bytes and a method
+/// path, and only the descriptor set knows which message that is.
+///
+/// # Errors
+/// [`JsonError::Response`] if the bytes are not that message.
+pub fn bytes_to_json(
+    pool: &DescriptorPool,
+    message_type: &str,
+    bytes: &[u8],
+) -> Result<String, JsonError> {
+    let fail = |reason: String| JsonError::Response {
+        message_type: message_type.to_owned(),
+        reason,
+    };
+    let descriptor = pool
+        .get_message_by_name(message_type)
+        .ok_or_else(|| fail("not in the embedded schema".to_owned()))?;
+
+    let dynamic = DynamicMessage::decode(descriptor, bytes).map_err(|e| fail(e.to_string()))?;
+    render(&dynamic, &fail)
+}
+
 /// A typed message → JSON.
 ///
 /// # Errors
@@ -119,7 +143,14 @@ pub fn to_json<M: prost::Message>(
 
     let dynamic = DynamicMessage::decode(descriptor, &*message.encode_to_vec())
         .map_err(|e| fail(e.to_string()))?;
+    render(&dynamic, &fail)
+}
 
+/// Serialize a dynamic message with the options both directions share.
+fn render(
+    dynamic: &DynamicMessage,
+    fail: &impl Fn(String) -> JsonError,
+) -> Result<String, JsonError> {
     let mut buf = Vec::new();
     let mut ser = serde_json::Serializer::pretty(&mut buf);
     // `stringify_64_bit_integers` off: heylogin's own client reads these as

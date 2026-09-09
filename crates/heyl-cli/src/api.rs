@@ -247,9 +247,10 @@ pub async fn run(api: Api, endpoint: Option<&str>) -> Result<(), ApiCommandError
 /// Every RPC in the schema, optionally filtered.
 fn methods(filter: Option<&str>) {
     let filter = filter.unwrap_or_default().to_lowercase();
-    for (path, name) in heyl_grpc::METHODS {
-        if path.to_lowercase().contains(&filter) {
-            println!("{path}  {name}");
+    for rpc in heyl_grpc::METHODS {
+        if rpc.path.to_lowercase().contains(&filter) {
+            let stream = if rpc.streaming { "  (streaming)" } else { "" };
+            println!("{}  {}{stream}", rpc.path, rpc.method);
         }
     }
 }
@@ -405,7 +406,7 @@ fn resolve(method: &str) -> Result<&'static str, ApiCommandError> {
     let wanted = method.trim_start_matches('/').to_lowercase();
     let matches: Vec<&'static str> = heyl_grpc::METHODS
         .iter()
-        .map(|(path, _)| *path)
+        .map(|rpc| rpc.path)
         .filter(|path| {
             let path = path.trim_start_matches('/').to_lowercase();
             path == wanted

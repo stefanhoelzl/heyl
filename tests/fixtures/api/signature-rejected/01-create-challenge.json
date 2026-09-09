@@ -1,0 +1,21 @@
+{
+  "method": "/domain.CredentialService/CreateChallenge",
+  "responses": [
+    {
+      "userId": "c0500acb-2b47-4495-8f1a-3706dc605c5e",
+      "challenge": "eyJhbGciOiJIUzI1NiIsImhsLXZlcnNpb24iOiIzIiwidHlwIjoiSldUIn0.eyJpc3MiOiJjaGFsbGVuZ2UiLCJzdWIiOiJjMDUwMGFjYi0yYjQ3LTQ0OTUtOGYxYS0zNzA2ZGM2MDVjNWUiLCJleHAiOjE3ODg5NTAzMzZ9.qgNGypJZ2J8EF3wErO_DU5D6bN4Z1iy7QeoLWEZcZoQ",
+      "authenticators": [
+        {
+          "id": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+          "secretInfo": "{\"checksum\":\"Deypt/qKp9Xq8LFPrcSHbusJ52Q94CGfGSlN+FYPszQ=\",\"recoveryParameters\":{\"saltBase64\":\"aGV5bC1maXh0dXJlLXNhbHQ=\",\"iterations\":1,\"memoryCost\":8192,\"parallelism\":1}}",
+          "authenticatorType": "AUTHENTICATOR_TYPE_BACKUP_CODE"
+        },
+        {
+          "id": "52bf9e45-3461-47f6-9e6b-a0865fbfaf85",
+          "secretInfo": "",
+          "authenticatorType": "AUTHENTICATOR_TYPE_PUSH"
+        }
+      ]
+    }
+  ]
+}

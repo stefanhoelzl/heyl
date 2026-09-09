@@ -28,6 +28,11 @@ name = "heyl"
 path = "src/main.rs"
 
 [dev-dependencies]
+# The corpus lives behind heyl-grpc's `api` feature, so the offline suite gets
+# it as a dev-dependency: `cargo tree -e normal` -- what ci/check-dep-graph.sh
+# and DESIGN.md §4's pure-graph claim look at -- does not see dev edges, so the
+# shipped binary's graph is unaffected.
+heyl-grpc      = { workspace = true, features = ["api"] }
 async-trait    = { workspace = true }
 base64         = { workspace = true }
 bytes          = { workspace = true }

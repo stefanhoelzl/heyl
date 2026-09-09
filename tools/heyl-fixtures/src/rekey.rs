@@ -36,9 +36,8 @@ use heyl_crypto::{EncryptionPrivateKey, Nonce, SecretSalt, Seed, SymKey, recover
 use heyl_domain::{
     AuthenticatorId, AuthenticatorKeys, HighSecurity, ProfileId, ProfileSeed, Storable, VaultId,
 };
-use prost::Message as _;
 
-use crate::{frames, record::Recording};
+use heyl_grpc::corpus::Record;
 
 /// The synthetic recovery code the fixture is built around.
 ///
@@ -164,33 +163,53 @@ impl Deterministic {
 
 // ------------------------------------------------------------- reading it back
 
-/// Decode the first message frame of an exchange's response.
+/// Decode the nth recorded response for a method.
 fn response_message<T: prost::Message + Default>(
-    recording: &Recording,
+    records: &[Record],
     path: &str,
     nth: usize,
 ) -> Result<T, String> {
-    use base64::Engine as _;
-    let exchange = recording
-        .exchanges
+    let record = records
         .iter()
-        .filter(|e| e.path.ends_with(path))
+        .filter(|r| r.method.ends_with(path))
         .nth(nth)
-        .ok_or_else(|| format!("recording has no {path} #{nth}"))?;
-    let body = base64::engine::general_purpose::STANDARD
-        .decode(&exchange.response)
-        .map_err(|e| format!("{path}: response is not base64: {e}"))?;
-    let payload = frames::first_message(&frames::split(&body))
-        .ok_or_else(|| format!("{path}: response carries no message frame"))?
-        .clone();
-    T::decode(&*payload).map_err(|e| format!("{path}: {e}"))
+        .ok_or_else(|| format!("the corpus has no {path} #{nth}"))?;
+    decode(record, path)
+}
+
+/// A record's response, as a typed message.
+fn decode<T: prost::Message + Default>(record: &Record, path: &str) -> Result<T, String> {
+    let rpc = heyl_grpc::Rpc::by_path(&record.method)
+        .ok_or_else(|| format!("{} is not an RPC in the schema", record.method))?;
+    let response = record
+        .responses
+        .first()
+        .ok_or_else(|| format!("{path}: record carries no response"))?;
+    let document = serde_json::to_string(response).map_err(|e| format!("{path}: {e}"))?;
+    let pool = heyl_grpc::json::pool().map_err(|e| e.to_string())?;
+    heyl_grpc::json::from_json(pool, rpc.response_type, &document)
+        .map_err(|e| format!("{path}: {e}"))
+}
+
+/// Put a re-keyed message back into a record.
+fn encode<T: prost::Message>(record: &mut Record, message: &T) -> Result<(), String> {
+    let rpc = heyl_grpc::Rpc::by_path(&record.method)
+        .ok_or_else(|| format!("{} is not an RPC in the schema", record.method))?;
+    let pool = heyl_grpc::json::pool().map_err(|e| e.to_string())?;
+    let rendered = heyl_grpc::json::to_json(pool, rpc.response_type, message)
+        .map_err(|e| format!("{}: {e}", record.method))?;
+    record.responses = vec![
+        serde_json::from_str(&rendered)
+            .map_err(|e| format!("{} rendered unreadable JSON: {e}", record.method))?,
+    ];
+    Ok(())
 }
 
 /// Recover the real chain, so the vault plaintext can be preserved.
-fn real_chain(recording: &Recording, code: &str) -> Result<RealChain, String> {
+fn real_chain(records: &[Record], code: &str) -> Result<RealChain, String> {
     // 1. the recovery parameters the account actually uses
     let challenge: heyl_proto::CreateChallengeResponse =
-        response_message(recording, "/CreateChallenge", 0)?;
+        response_message(records, "/CreateChallenge", 0)?;
     let backup = challenge
         .authenticators
         .iter()
@@ -215,7 +234,7 @@ fn real_chain(recording: &Recording, code: &str) -> Result<RealChain, String> {
         .map_err(|e| format!("recorded authenticator id: {e}"))?;
 
     // 2. secretSalt, which only AuthenticatorService.List reveals
-    let list: heyl_proto::ListAuthenticatorsResponse = response_message(recording, "/List", 0)?;
+    let list: heyl_proto::ListAuthenticatorsResponse = response_message(records, "/List", 0)?;
     let salt_bytes = list
         .authenticators
         .iter()
@@ -229,7 +248,7 @@ fn real_chain(recording: &Recording, code: &str) -> Result<RealChain, String> {
         .map_err(|e| format!("real authenticator keys: {e}"))?;
 
     // 3. every profile's two seeds
-    let sync: heyl_proto::SyncResponse = response_message(recording, "/Sync", 0)?;
+    let sync: heyl_proto::SyncResponse = response_message(records, "/Sync", 0)?;
     let update = sync
         .sync_update
         .ok_or("recorded Sync carries no SyncUpdate")?;
@@ -265,7 +284,7 @@ fn real_chain(recording: &Recording, code: &str) -> Result<RealChain, String> {
         .filter(|v| heyl_grpc::map::vault_type_is_supported(v.vault_type));
     for (nth, vault) in supported.enumerate() {
         let commits: heyl_proto::ListCommitsResponse =
-            match response_message(recording, "/ListCommits", nth) {
+            match response_message(records, "/ListCommits", nth) {
                 Ok(c) => c,
                 Err(_) => break,
             };
@@ -376,57 +395,48 @@ pub fn run(input: &Path, out: &Path) -> Result<(), String> {
 
     let code = std::env::var("HEYL_RECOVERY_CODE")
         .map_err(|_| "set HEYL_RECOVERY_CODE — the real chain must be opened once".to_owned())?;
-    let raw =
-        std::fs::read_to_string(input).map_err(|e| format!("reading {}: {e}", input.display()))?;
-    let recording: Recording =
-        serde_json::from_str(&raw).map_err(|e| format!("parsing {}: {e}", input.display()))?;
+    let mut records = heyl_grpc::corpus::load(input).map_err(|e| e.to_string())?;
 
-    let real = real_chain(&recording, &code)?;
+    let real = real_chain(&records, &code)?;
     let backup_id = real.keys.id();
     let mut test = TestChain::new(backup_id)?;
     let rng = Deterministic::new();
     let b64 = base64::engine::general_purpose::STANDARD;
-
-    let mut out_recording = Recording {
-        meta: Some(crate::record::Meta {
-            code: TEST_CODE.to_owned(),
-            session_seed: b64.encode(FIXTURE_SESSION_SEED),
-        }),
-        ..Recording::default()
-    };
     let mut vault_index = 0usize;
 
-    for exchange in &recording.exchanges {
-        let body = b64
-            .decode(&exchange.response)
-            .map_err(|e| format!("{}: {e}", exchange.path))?;
-        let mut fs = frames::split(&body);
+    for record in &mut records {
+        let path = record.method.clone();
+        // The request carries a signature over a challenge and, on
+        // CreateTokens, a sealed seed. Replay matches on method and order for
+        // these, so it is dropped rather than re-keyed: what is not committed
+        // cannot leak.
+        record.request = None;
 
-        if exchange.path.ends_with("/CreateChallenge") {
-            let mut m = decode::<heyl_proto::CreateChallengeResponse>(&fs, &exchange.path)?;
+        if path.ends_with("/CreateChallenge") {
+            let mut m = decode::<heyl_proto::CreateChallengeResponse>(record, &path)?;
             for a in &mut m.authenticators {
                 if a.authenticator_type == heyl_proto::AuthenticatorType::BackupCode as i32 {
                     a.secret_info = test_secret_info(&test.seed);
                 }
             }
-            frames::replace_message(&mut fs, m.encode_to_vec());
-        } else if exchange.path.ends_with("/CreateTokens") {
-            let mut m = decode::<heyl_proto::CreateTokensResponse>(&fs, &exchange.path)?;
+            encode(record, &m)?;
+        } else if path.ends_with("/CreateTokens") {
+            let mut m = decode::<heyl_proto::CreateTokensResponse>(record, &path)?;
             if let Some(t) = m.access_token.as_mut() {
                 "fixture-access-token".clone_into(&mut t.token);
             }
             if let Some(u) = m.sync_update.as_mut() {
                 rekey_sync_update(u, &real, &mut test, &rng)?;
             }
-            frames::replace_message(&mut fs, m.encode_to_vec());
-        } else if exchange.path.ends_with("/Sync") {
-            let mut m = decode::<heyl_proto::SyncResponse>(&fs, &exchange.path)?;
+            encode(record, &m)?;
+        } else if path.ends_with("/Sync") {
+            let mut m = decode::<heyl_proto::SyncResponse>(record, &path)?;
             if let Some(u) = m.sync_update.as_mut() {
                 rekey_sync_update(u, &real, &mut test, &rng)?;
             }
-            frames::replace_message(&mut fs, m.encode_to_vec());
-        } else if exchange.path.ends_with("/List") {
-            let mut m = decode::<heyl_proto::ListAuthenticatorsResponse>(&fs, &exchange.path)?;
+            encode(record, &m)?;
+        } else if path.ends_with("/List") {
+            let mut m = decode::<heyl_proto::ListAuthenticatorsResponse>(record, &path)?;
             let login = heyl_domain::login_signing_key(&test.seed)
                 .map_err(|e| format!("test login key: {e}"))?;
             let identity = test.keys.identity_signing_key().verifying_key();
@@ -448,48 +458,32 @@ pub fn run(input: &Path, out: &Path) -> Result<(), String> {
                     }
                 }
             }
-            frames::replace_message(&mut fs, m.encode_to_vec());
-        } else if exchange.path.ends_with("/ListCommits") {
-            let mut m = decode::<heyl_proto::ListCommitsResponse>(&fs, &exchange.path)?;
+            encode(record, &m)?;
+        } else if path.ends_with("/ListCommits") {
+            let mut m = decode::<heyl_proto::ListCommitsResponse>(record, &path)?;
             rekey_commits(&mut m, vault_index, &real, &mut test, &rng)?;
             vault_index += 1;
-            frames::replace_message(&mut fs, m.encode_to_vec());
+            encode(record, &m)?;
         }
-
-        out_recording.exchanges.push(crate::record::Exchange {
-            path: exchange.path.clone(),
-            // The request carries a signature over a challenge and, on
-            // CreateTokens, a sealed seed. Replay never reads it, so it is
-            // dropped rather than re-keyed: what is not committed cannot leak.
-            request: String::new(),
-            response: b64.encode(frames::join(&fs)),
-            headers: exchange.headers.clone(),
-        });
     }
 
-    let json = serde_json::to_string_pretty(&out_recording)
-        .map_err(|e| format!("serialising the fixture: {e}"))?;
-    if let Some(parent) = out.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("creating {}: {e}", parent.display()))?;
+    if out.exists() {
+        std::fs::remove_dir_all(out).map_err(|e| format!("clearing {}: {e}", out.display()))?;
     }
-    std::fs::write(out, json).map_err(|e| format!("writing {}: {e}", out.display()))?;
+    for (index, record) in records.iter().enumerate() {
+        heyl_grpc::corpus::write(out, index, record).map_err(|e| e.to_string())?;
+    }
+    heyl_grpc::corpus::Meta {
+        code: TEST_CODE.to_owned(),
+        session_seed: b64.encode(FIXTURE_SESSION_SEED),
+    }
+    .write(out)
+    .map_err(|e| e.to_string())?;
 
     verify(out, &code)?;
-    eprintln!(
-        "wrote {} exchanges to {}",
-        out_recording.exchanges.len(),
-        out.display()
-    );
+    eprintln!("wrote {} records to {}", records.len(), out.display());
     eprintln!("verified: the fixture opens with the test seed, and not with the real one.");
     Ok(())
-}
-
-fn decode<T: prost::Message + Default>(fs: &[frames::Frame], path: &str) -> Result<T, String> {
-    let payload = frames::first_message(fs)
-        .ok_or_else(|| format!("{path}: no message frame"))?
-        .clone();
-    T::decode(&*payload).map_err(|e| format!("{path}: {e}"))
 }
 
 /// `RecoverySecretInfo` for the synthetic code.
@@ -573,15 +567,13 @@ fn rekey_commits(
 /// The second half is what catches a layer the re-key forgot: a fixture that
 /// still opens with the account's real key is one that still contains it.
 fn verify(fixture: &Path, real_code: &str) -> Result<(), String> {
-    let raw = std::fs::read_to_string(fixture)
-        .map_err(|e| format!("re-reading {}: {e}", fixture.display()))?;
-    let recording: Recording = serde_json::from_str(&raw).map_err(|e| format!("{e}"))?;
+    let records = heyl_grpc::corpus::load(fixture).map_err(|e| e.to_string())?;
 
     // The committed code opens it.
     let derived = recovery::derive_recovery_seed(TEST_CODE, TEST_SALT, TEST_PARAMS)
         .map_err(|e| format!("{e}"))?;
     let challenge: heyl_proto::CreateChallengeResponse =
-        response_message(&recording, "/CreateChallenge", 0)?;
+        response_message(&records, "/CreateChallenge", 0)?;
     let backup = challenge
         .authenticators
         .iter()

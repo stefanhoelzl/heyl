@@ -1,0 +1,9 @@
+{
+  "method": "/domain.CredentialService/CreateTokens",
+  "responses": [],
+  "error": {
+    "status": 7,
+    "domain_code": 30420,
+    "message": "Invalid credentials"
+  }
+}

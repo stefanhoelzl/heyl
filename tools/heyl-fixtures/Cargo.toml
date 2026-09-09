@@ -20,7 +20,7 @@ path = "src/main.rs"
 heyl-app      = { workspace = true }
 heyl-crypto   = { workspace = true }
 heyl-domain   = { workspace = true }
-heyl-grpc     = { workspace = true }
+heyl-grpc     = { workspace = true, features = ["api"] }
 heyl-platform = { workspace = true }
 heyl-ports    = { workspace = true }
 

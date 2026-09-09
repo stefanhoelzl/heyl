@@ -15,7 +15,7 @@
 //! `client-type`, the authenticator and the signature; `heyl api call` varies
 //! all three as ordinary arguments, against any RPC rather than one.
 
-mod frames;
+mod derive;
 mod mem;
 mod record;
 mod rekey;
@@ -36,6 +36,34 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Materialise a situation from the base corpus.
+    ///
+    /// A situation is a whole corpus on disk, not a patch applied at load
+    /// time — but every record has to stay crypto-consistent, so it is the
+    /// base copied and edited rather than hand-authored. `diff -r` against
+    /// the base then shows the whole difference from reality.
+    Derive {
+        /// The corpus to copy.
+        #[arg(long, default_value = "tests/fixtures/api/base")]
+        base: std::path::PathBuf,
+
+        /// Where the situation goes.
+        #[arg(long)]
+        out: std::path::PathBuf,
+
+        /// `<record>:<pointer>=<json>`, repeatable. `null` removes the key.
+        #[arg(long = "set")]
+        set: Vec<String>,
+
+        /// `<record>:<status>[:<domain-code>[:<message>]]`, repeatable.
+        #[arg(long = "fail")]
+        fail: Vec<String>,
+
+        /// Keep only the first N records.
+        #[arg(long)]
+        truncate: Option<usize>,
+    },
+
     /// Record a whole session against a real account, in one pass.
     ///
     /// Captures the gRPC-Web bytes for the recovery and every read `doctor`
@@ -46,8 +74,8 @@ enum Command {
     /// again, so this captures everything a wire-level replay needs in a
     /// single run.
     Record {
-        /// Where to write the raw recording.
-        #[arg(long, default_value = ".work/recording.json")]
+        /// Where to write the raw recording. A directory of records.
+        #[arg(long, default_value = ".work/recording")]
         out: std::path::PathBuf,
 
         /// Proceed without asking before disconnecting anything.
@@ -62,11 +90,11 @@ enum Command {
     /// code and **not** with the real one.
     Rekey {
         /// The raw recording from `record`.
-        #[arg(long, default_value = ".work/recording.json")]
+        #[arg(long, default_value = ".work/recording")]
         input: std::path::PathBuf,
 
         /// Where to write the fixture.
-        #[arg(long, default_value = "tests/fixtures/wire/session.json")]
+        #[arg(long, default_value = "tests/fixtures/api/base")]
         out: std::path::PathBuf,
     },
 }
@@ -90,6 +118,20 @@ fn main() -> std::process::ExitCode {
     };
 
     let result = match cli.command {
+        Command::Derive {
+            base,
+            out,
+            set,
+            fail,
+            truncate,
+        } => set
+            .iter()
+            .map(|raw| derive::parse_set(raw))
+            .chain(fail.iter().map(|raw| derive::parse_fail(raw)))
+            .chain(truncate.map(|n| Ok(derive::Edit::Truncate(n))))
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(|edits: Vec<derive::Edit>| derive::run(&base, &out, &edits)),
+
         Command::Record { out, confirm } => {
             runtime.block_on(record::run(&cli.endpoint, &out, confirm))
         }

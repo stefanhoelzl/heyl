@@ -853,10 +853,32 @@ not one-time, and it unlocks every vault).
 | KDF & key hierarchy (§3) | Fixed-seed snapshots, one per derivation, independently addressable | *regression only* — see below | No |
 | Vault decode | Recorded commit blobs + their expected plaintext, checked in redacted | authoritative once captured | No |
 | heymerge round-trip | Property test: parse → serialize preserves unknown keys byte-for-byte | authoritative | No |
-| Protocol | Recorded request/response fixtures replayed against a **fake `HeylApi`** | authoritative | No |
+| Error decoding | M0's recorded `.http` exchanges replayed against `status.rs` | authoritative | No |
+| Framing | A gRPC-Web body built at chosen sizes and frame counts, through the transport seam | authoritative, and it can ask sizes a recording never happened to contain | No |
+| Generated surface | Two shape tests — unary and server-streaming — plus the trait's completeness against the descriptor set | authoritative for the generator | No |
+| Record ↔ replay | Round trip: record against a stub, replay the records, compare | authoritative | No |
+| **Use cases** | `heyl-app` over `DomainApi<RecordedApi>` — **real heylogin messages, through the real mapping** | authoritative for everything but the context salts | No |
 | Port adapters | Fake `SecretStore` / `Terminal` / `ProcessRunner` / `Clock` / `RandomSource`; the suite never touches a real keychain | — | No |
-| Wire replay | Recorded gRPC-Web **response bytes**, re-keyed, played through the real `heyl-grpc` | authoritative for mapping, error decoding, framing | No |
 | End-to-end, live | `tools/heyl-fixtures` against a real account — a **tool**, never a test | authoritative | Yes |
+
+**The corpus is the single description of an account.** Before it there were two
+descriptions and neither was heylogin's: a 658-line hand-built account in `heyl-app`'s tests,
+which could only ever confirm that our code agreed with itself, and a wire recording that no
+layer above the transport could reach. Recording at `HeyloginApi` — prost messages, one file per
+call — replaced both, and the vault documents in it are heylogin's own bytes.
+
+Records are **pre-mapping**: they hold what the backend sent, not what we understood it to mean,
+so a change to `map.rs` does not invalidate them and a record can be re-read as understanding
+improves. A **situation** is a whole corpus on disk under `tests/fixtures/api/<name>/`,
+materialised from `base/` by `heyl-fixtures derive`; `diff -r` against the base is the entire
+difference from reality. Situations cover what no backend produces on demand — an expired unlock,
+a token due for rotation, `DomainError 30460`.
+
+Two rules keep it committable. **No token is ever written**: the bearer token is metadata on a
+`Request<T>`, so the recorder sees it, and it is dropped at the point of recording rather than
+redacted afterwards, because a redaction step that runs later is one that can be forgotten. And
+**the corpus must open with the committed test code and with nothing else** — `rekey` asserts
+both halves before writing, which is what catches a layer the re-key forgot.
 
 **No automated test ever touches a real account.** The line is: tests replay recorded flows; only
 `tools/` talks to heylogin. A live confirmation is a deliberate act someone performs, never a test
@@ -929,7 +951,7 @@ actually released.
 | **M1** | **Crypto core** — workspace + CI, `heyl-crypto` (§2 primitives, `deriveSecretFromSeed`, every context salt v1 needs) and `heyl-domain` (ids, locks, `Timestamp`, the full key hierarchy) | *proven*: primitives vs upstream vectors, Argon2id vs RFC 9106. *pinned*: every derivation snapshotted per link, regression-only until M2. *enforced*: dependency-graph rules, no `unsafe`, no `cc`/`cmake`/`*-sys`. *built*: full hierarchy, `mlock`ed secret newtypes | M |
 | **M2** | ✅ **`heyl recovery` + hierarchy confirmation** — `heyl-proto`/`heyl-grpc`/`heyl-ports`/`heyl-app`/`heyl-vault`/`heyl-platform`/`heyl-cli`, a self-granted unlock, and `heyl doctor`. The login method changed under it: recovery-code login turned out to be destructive and client-type-gated (§2), so the confirmation was reached with the **phone swipe** | Done: the shipped binary recovers a real account, stores the session in the OS keychain, and a separate `heyl doctor` invocation reports **37 passed, 0 failed** — all eight derivation links across four profiles, each byte-compared against the key heylogin publishes, and all five vaults decrypted | **L** |
 | **M3** | ✅ **API surface + re-base** — `HeyloginApi` generated from the descriptor set (one method per RPC, all 123), a stateless `GrpcClient`, and `heyl-ports::HeylApi` re-implemented as `DomainApi<A: HeyloginApi>`. Adds the hidden `heyl api` behind a default-off cargo feature | Done: 123 methods generated and callable; a login is hand-drivable through `heyl api` (`call CreateChallenge` → `sign-challenge` → `call CreateTokens`); `recovery`, `doctor` and the offline suite green throughout; `prost-reflect` absent from the release graph | M/L |
-| **M4** | **Corpus** — record and replay at `HeyloginApi` in prost messages: a generated `RecordingApi` decorator and `RecordedApi` stub, `session.json` migrated to messages, one full record per situation, and message-level re-keying | The whole offline suite runs on recorded data, with `account.rs`, `wire_replay.rs` and the frame-level `rekey` machinery deleted | M |
+| **M4** | ✅ **Corpus** — record and replay at `HeyloginApi` in prost messages: a generated `RecordingApi` decorator and `RecordedApi` stub, `session.json` migrated to messages, one full record per situation, and message-level re-keying | Done: `heyl-app`'s use cases run on real heylogin messages through the real mapping; `account.rs` (658 lines), the wire fixture, `wire_replay.rs` and the frame machinery are deleted; framing is tested in isolation at chosen sizes instead | M |
 
 **Still to do, unplanned and unordered.** These were once numbered M3–M11 with drafted exit
 criteria; that was a plan for work nobody had started, and re-deciding it step by step as each is
@@ -945,7 +967,7 @@ reached has been more useful than mechanically shifting the numbers. What remain
 - **FIDO2 login**, **device-to-device unlock**, **Windows support** — independent of one another
   and of the core, which is the intent behind the port boundary.
 
-**Critical path: ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → M4 → read path.** M1 carried the correctness
+**Critical path: ~~M0~~ → ~~M1~~ → ~~M2~~ → ~~M3~~ → ~~M4~~ → read path.** M1 carried the correctness
 risk but could not retire it: with no oracle available offline, **M2 is where the reverse
 engineering was first confirmed**, which is why M2 reached past login to decrypt a vault.
 

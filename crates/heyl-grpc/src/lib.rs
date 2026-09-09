@@ -41,6 +41,8 @@ pub mod request;
 pub mod status;
 
 #[cfg(feature = "api")]
+pub mod corpus;
+#[cfg(feature = "api")]
 pub mod json;
 
 pub use client::{GrpcClient, GrpcConfig, Transportable};
@@ -78,7 +80,10 @@ pub type MessageStream<T> =
 mod generated {
     use heyl_ports::ApiError;
 
-    use crate::client::{GrpcClient, Transportable};
+    use crate::{
+        Rpc,
+        client::{GrpcClient, Transportable},
+    };
 
     include!(concat!(env!("OUT_DIR"), "/api.rs"));
 
@@ -89,7 +94,39 @@ mod generated {
 pub use generated::{HeyloginApi, METHODS};
 
 #[cfg(feature = "api")]
+pub use corpus::{Record, RecordedApi, RecordingApi};
+#[cfg(feature = "api")]
 pub use generated::dispatch;
+
+/// One RPC in the schema.
+///
+/// The catalogue exists so tooling can walk heylogin's surface without a
+/// second source of truth about what it contains — a migration needs to know
+/// which message a recorded response is, and only the descriptor set knows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rpc {
+    /// The gRPC method path, e.g. `/domain.SyncService/Sync`.
+    pub path: &'static str,
+    /// The [`HeyloginApi`] method serving it.
+    pub method: &'static str,
+    /// The request message's protobuf type name.
+    pub request_type: &'static str,
+    /// The response message's protobuf type name.
+    pub response_type: &'static str,
+    /// Whether the response is a stream.
+    pub streaming: bool,
+}
+
+impl Rpc {
+    /// Find an RPC by its gRPC path.
+    #[must_use]
+    pub fn by_path(path: &str) -> Option<Self> {
+        let wanted = path.trim_start_matches('/');
+        METHODS
+            .into_iter()
+            .find(|rpc| rpc.path.trim_start_matches('/') == wanted)
+    }
+}
 
 /// A `heyl api` call that could not be made.
 #[cfg(feature = "api")]

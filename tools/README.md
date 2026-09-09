@@ -42,13 +42,34 @@ and in the offline suite.
 
 ### `record`
 
-Captures a whole session's gRPC-Web bytes in one pass — challenge, tokens, sync,
-authenticator list, every `ListCommits`. One pass, because a recording is made
-during a real destructive recovery and that opportunity does not repeat without
-pairing a phone again.
+Captures a whole session at the **API boundary**, in one pass — challenge,
+tokens, sync, authenticator list, every `ListCommits`. One pass, because a
+recording is made during a real destructive recovery and that opportunity does
+not repeat without pairing a phone again.
 
-The output holds **real key material and a live token**. It is input to `rekey`,
-never something to commit.
+It runs the product's own path (`heyl recovery`, then `heyl doctor` through
+`heyl-app`) wrapped in the generated `RecordingApi`, so what lands on disk is
+the messages heylogin actually sent, in the order the client actually asks for
+them. The output holds **real key material and a live token** — it is input to
+`rekey`, never something to commit.
+
+### `derive`
+
+Materialises a situation from the base corpus. A situation is a whole corpus,
+not a patch applied at load time, so what a test sees is what is on disk — but
+hand-authoring one is not realistic, since every record has to stay
+crypto-consistent or the first decryption fails for the wrong reason.
+
+```sh
+cargo run -p heyl-fixtures -- derive --out tests/fixtures/api/expired-unlock \
+    --set '03-sync:/syncUpdate/sessionUnlock=null'
+
+cargo run -p heyl-fixtures -- derive --out tests/fixtures/api/refusal \
+    --fail '02-create-tokens:3:30460:Invalid session type' --truncate 2
+```
+
+The review property full records give up — seeing how a situation differs from
+reality — comes back as `diff -r tests/fixtures/api/base <situation>`.
 
 ### `rekey`
 
@@ -67,9 +88,15 @@ result, and that the real one does not. The second half is what catches a layer
 the re-key forgot — a fixture the account's own code still opens is one that
 still contains it.
 
-**Operates on gRPC-Web frames today.** The corpus milestone moves it to typed
-messages, where re-keying is rewriting fields rather than decoding, editing and
-re-encoding frames — which is most of why it is 600 lines.
+**Operates on typed messages**, not frames: a re-key is rewriting fields, which
+is why the frame-splitting machinery is gone.
+
+The corpus in `tests/fixtures/api/base` was not produced by a fresh recording —
+it was migrated from the gRPC-Web fixture M2 captured, because that recording
+holds the one shape no later one can reproduce: a `CreateChallenge` that still
+lists a push authenticator, which performing the recovery deletes. The
+migration ran once and its tooling went with the wire fixture; both are in git
+history.
 
 **What no fixture can carry.** Evidence that our context salts match
 heylogin's. Re-keyed ciphertexts are made with our own salts, so they prove the

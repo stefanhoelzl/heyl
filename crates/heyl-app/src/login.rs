@@ -119,6 +119,9 @@ pub async fn run(
         .await
         .map_err(|e| match e {
             heyl_ports::ApiError::PermissionDenied { .. } => AppError::SignatureRejected,
+            // Everything else is surfaced as heylogin worded it. We do not
+            // rewrite the backend's diagnostics: our reading of them can be
+            // wrong, and it goes stale the moment heylogin changes behaviour.
             other => AppError::Api(other),
         })?;
 

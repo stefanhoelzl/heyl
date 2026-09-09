@@ -1,14 +1,21 @@
 # Prose gate — derivation snapshots
 
 The eight files under `crates/heyl-domain/tests/snapshots/` are the **only**
-regression detector the key hierarchy has. Nothing has confirmed them against
-heylogin, and nothing can until M2: `CreateTokens` accepting our signature
-confirms the login limb, and M2's single vault decrypt confirms the profile and
-vault limbs (DESIGN.md §6).
+regression detector the key hierarchy has.
 
-Until then a moved derivation key means one of two things — an intentional fix,
-or a silent regression — and `gates.sh` cannot tell them apart. It can only
-report that a `.snap` changed. That judgment is what this file asks for.
+M2 added an offline suite that runs the whole path — typed recovery code →
+Argon2id → seed → every link → a decrypted commit — and it does **not** replace
+this gate. That suite builds its fixtures with the same context salts the code
+derives with, so it is self-consistent by construction: change a context and
+both sides move together and the suite stays green. `heyl doctor`, run against a
+real account, is what actually detects a wrong context — by comparing each
+derived key against the public half heylogin publishes — and that is a live
+run, not something CI can do.
+
+So until a `heyl doctor` run against a real account is recorded in the repo, a
+moved derivation key still means one of two things — an intentional fix, or a
+silent regression — and `gates.sh` cannot tell them apart. It can only report
+that a `.snap` changed. That judgment is what this file asks for.
 
 ## Check
 
@@ -36,3 +43,6 @@ Any changed snapshot that has neither. List each one and what is missing.
 
 Abort too when a snapshot changed and the only explanation offered is that
 `cargo insta review` accepted it — that describes the mechanism, not the cause.
+
+Abort when a snapshot changed and the justification is that the offline suite
+in `crates/heyl-app/tests/` still passes. It would: see above.

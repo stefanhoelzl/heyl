@@ -27,23 +27,6 @@ use crate::{
 // re-exported for callers writing `ProfileSeed<Storable>`
 pub use heyl_crypto::{HighSecurity, Storable};
 
-/// The login signing key: the one authenticator key derived with a **null**
-/// secondary seed.
-///
-/// That is not an accident of the design — it is what lets login happen before
-/// the server has revealed `secretSalt`, which it only does *after* a
-/// successful `CreateTokens` (§4).
-///
-/// # Errors
-/// Propagates [`heyl_crypto::CryptoError`].
-pub fn login_signing_key(seed: &Seed) -> Result<SigningKey, DomainError> {
-    Ok(SigningKey::derive(
-        seed.expose_secret(),
-        None,
-        context::AUTHENTICATOR_LOGIN_SIGNING,
-    )?)
-}
-
 /// The authenticator-level keys that need `secretSalt`.
 ///
 /// heylogin declares separate storable and high-security constants for both of

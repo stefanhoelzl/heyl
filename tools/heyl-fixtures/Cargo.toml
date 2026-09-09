@@ -1,0 +1,30 @@
+[package]
+name        = "heyl-fixtures"
+version     = "0.0.0"
+description = "Development tool: probes the login signing input and re-keys recorded fixtures. Not published, not shipped."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+publish     = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "heyl-fixtures"
+path = "src/main.rs"
+
+[dependencies]
+heyl-app      = { workspace = true }
+heyl-crypto   = { workspace = true }
+heyl-domain   = { workspace = true }
+heyl-grpc     = { workspace = true }
+heyl-platform = { workspace = true }
+heyl-ports    = { workspace = true }
+
+clap       = { workspace = true }
+serde_json = { workspace = true }
+tokio      = { workspace = true }
+zeroize    = { workspace = true }

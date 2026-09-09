@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "tools/*"]
 
 [workspace.package]
 edition      = "2024"
@@ -40,6 +40,28 @@ region           = "4.0"
 uuid             = { version = "1", features = ["serde"] }
 base64           = "0.22"
 snap             = "1"
+# --- platform adapters
+# keyring 4, default (`v1`) features: macOS Keychain, Windows Credential
+# Manager, and Secret Service on Linux.
+#
+# NOT the `cli` feature, which additionally pulls `db-keystore` -- a
+# file-backed credential store -- plus `keyring-core/sample` (a mock) and
+# Apple's biometric-gated "protected" Keychain. An on-disk credential store is
+# directly at odds with DESIGN.md §3, and none of it should be reachable here.
+#
+# NOT `linux-keyutils-keyring-store` either: `v1.rs` hardcodes the zbus
+# Secret Service store on Linux, so enabling keyutils compiles it in without
+# ever selecting it. Using it would mean calling `keyring_core::set_default_store`
+# ourselves -- worth considering later, since a kernel keyring is not on disk,
+# but it is a behaviour change (session-scoped, lost on reboot) rather than a
+# feature flag.
+keyring          = "4"
+rpassword        = "7.5"
+rand_core        = { version = "0.9", features = ["os_rng"] }
+# A safe wrapper over setrlimit, so heyl-platform keeps `unsafe_code = "forbid"`
+# -- the same reasoning that chose `region` over `secrets` for mlock.
+rlimit           = "0.10"
+clap             = { version = "4", features = ["derive", "env"] }
 jiff             = "0.2"
 serde            = { version = "1", features = ["derive"] }
 thiserror        = "2"

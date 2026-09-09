@@ -99,7 +99,8 @@ impl Seed {
     /// Whether the seed's buffer is `mlock`ed.
     ///
     /// `false` means the OS refused, typically `RLIMIT_MEMLOCK`. `heyl-cli`
-    /// warns once on this rather than failing.
+    /// treats that as **fatal** at startup: §3 claims the seed never reaches
+    /// swap, and continuing would ship a weaker guarantee than advertised.
     #[must_use]
     pub fn is_locked(&self) -> bool {
         self.0.is_locked()

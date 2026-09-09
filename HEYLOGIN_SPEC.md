@@ -236,8 +236,10 @@ Server-stored per authenticator (`Authenticator`): the derived public keys, a `s
   (`RecoverySecretInfo = { checksum, recoveryParameters }`, where
   `recoveryParameters = { saltBase64, iterations, memoryCost, parallelism }`).
 - **The code is verifiable offline.** `checksum` is base64 of `SHA512(seed)[:32]`, so a client can
-  reject a mistyped recovery code locally, before any network call
-  (`authenticator/recoverySecret.ts`).
+  reject a mistyped recovery code locally (`authenticator/recoverySecret.ts`) — but **not before
+  any network call**: the checksum and the Argon2 parameters both live in `secretInfo`, which
+  arrives with `CreateChallenge`. The saving is a rejected `CreateTokens` round trip, and a
+  precise error instead of a backend one.
 - Code format: six groups of four digits — `1234-5678-9012-3456-7890-1234` — hashed **including the dashes**.
 - **Reusable**, not one-time: it is a standing authenticator, invalidated only by explicit regeneration
   (`onlineInternalRegenerateRecovery` deletes the old + adds a new one). `secretInfo` here is the checksum

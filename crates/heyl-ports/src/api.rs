@@ -33,6 +33,15 @@ pub struct SessionUnlockGrant {
 /// heylogin, reduced to what this client calls.
 #[async_trait::async_trait]
 pub trait HeylApi: Send + Sync {
+    /// Adopt a bearer token for subsequent calls, or clear it.
+    ///
+    /// The port is stateful about authentication because the backend is: a
+    /// token is rotated by `RefreshToken` mid-run, and every later call has to
+    /// pick up the new value. Threading it through each method signature would
+    /// put the same parameter on all of them and still not express that the
+    /// old token is now dead.
+    async fn set_access_token(&self, token: Option<&str>);
+
     /// `CredentialService.CreateChallenge` — the challenge and the account's
     /// authenticators, before any credential is presented.
     ///

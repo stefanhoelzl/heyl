@@ -99,11 +99,6 @@ impl GrpcClient {
         })
     }
 
-    /// Adopt a bearer token for subsequent calls.
-    pub async fn set_token(&self, token: Option<String>) {
-        *self.token.write().await = token;
-    }
-
     /// Attach the metadata every call needs.
     ///
     /// `client-type` is mandatory and enum-validated; `client-version` is not
@@ -155,6 +150,10 @@ macro_rules! client_for {
 
 #[async_trait::async_trait]
 impl HeylApi for GrpcClient {
+    async fn set_access_token(&self, token: Option<&str>) {
+        *self.token.write().await = token.map(str::to_owned);
+    }
+
     async fn create_challenge(&self, email: &str) -> Result<Challenge, ApiError> {
         let mut client = client_for!(
             self,

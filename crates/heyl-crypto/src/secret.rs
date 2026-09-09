@@ -80,7 +80,8 @@ impl<const N: usize> SecretBytes<N> {
     /// Whether the buffer is actually `mlock`ed.
     ///
     /// `false` means the OS refused — typically `RLIMIT_MEMLOCK`. The buffer
-    /// still zeroizes; it is simply swappable. `heyl-cli` warns once on this.
+    /// still zeroizes; it is simply swappable. `heyl-cli` refuses to start in
+    /// that case rather than warning — see `heyl_platform::process`.
     #[must_use]
     pub fn is_locked(&self) -> bool {
         self.lock.is_some()

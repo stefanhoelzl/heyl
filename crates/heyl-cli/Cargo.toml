@@ -1,0 +1,30 @@
+[package]
+name        = "heyl"
+version     = "0.0.0"
+description = "Unofficial command-line client for heylogin: retrieve passwords, TOTP codes and custom fields from your vault."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "heyl"
+path = "src/main.rs"
+
+[dependencies]
+heyl-app      = { workspace = true }
+heyl-crypto   = { workspace = true }
+heyl-domain   = { workspace = true }
+heyl-grpc     = { workspace = true }
+heyl-platform = { workspace = true }
+heyl-ports    = { workspace = true }
+
+clap        = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
+zeroize     = { workspace = true }

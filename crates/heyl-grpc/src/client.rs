@@ -23,6 +23,12 @@ pub struct GrpcConfig {
     /// The `client-type` value. `CLIENT_TYPE_CLI` in every shipped path; the
     /// probe varies it to find out where a backend constraint actually lives.
     pub client_type: String,
+    /// `client-id`: a fresh UUID per client instance.
+    ///
+    /// The real clients always send one — `getBackendClient()` builds the
+    /// `BackendClient` with `clientId: newUuid()`. A *session* is created for a
+    /// client, so this is not decoration.
+    pub client_id: String,
     /// `user-agent`, which M0 confirmed a custom value is accepted for.
     pub user_agent: String,
 }
@@ -33,6 +39,7 @@ impl Default for GrpcConfig {
             endpoint: crate::DEFAULT_ENDPOINT.to_owned(),
             client_version: env!("CARGO_PKG_VERSION").to_owned(),
             client_type: crate::CLIENT_TYPE_CLI.to_owned(),
+            client_id: uuid::Uuid::new_v4().to_string(),
             user_agent: format!(
                 "heyl/{} (+{})",
                 env!("CARGO_PKG_VERSION"),
@@ -122,6 +129,7 @@ impl GrpcClient {
                 })
         };
 
+        insert(meta, "client-id", &self.config.client_id)?;
         insert(meta, "client-type", &self.config.client_type)?;
         insert(meta, "client-version", &self.config.client_version)?;
         insert(meta, "user-agent", &self.config.user_agent)?;

@@ -132,6 +132,7 @@ fn describe_charset(s: &str) -> String {
 pub async fn run(
     endpoint: &str,
     client_type: &str,
+    authenticator_override: Option<&str>,
     only: Option<&str>,
     delay_secs: u64,
 ) -> Result<(), String> {
@@ -189,9 +190,14 @@ pub async fn run(
                 .await
                 .map_err(|e| format!("CreateChallenge failed: {e}"))?;
 
-            let (authenticator_id, secret) = recovery_authenticator(&challenge)
+            let (mut authenticator_id, secret) = recovery_authenticator(&challenge)
                 .ok_or_else(|| "this account has no BACKUP_CODE authenticator".to_owned())?;
             let seed = derive(&code, secret)?;
+
+            if let Some(id) = authenticator_override {
+                authenticator_id = heyl_domain::AuthenticatorId::parse(id)
+                    .map_err(|e| format!("--authenticator: {e}"))?;
+            }
 
             let Ok(signature) = heyl_domain::sign_challenge(&seed, &challenge.challenge, encoding)
             else {

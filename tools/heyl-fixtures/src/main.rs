@@ -43,6 +43,16 @@ enum Command {
         #[arg(long, default_value = heyl_grpc::CLIENT_TYPE_CLI)]
         client_type: String,
 
+        /// Sign for a different authenticator id than the `BACKUP_CODE` one.
+        ///
+        /// The signature will not verify — we do not have that authenticator's
+        /// seed. The point is *which error comes back*: if naming a PUSH
+        /// authenticator changes `invalid session type` into a credential
+        /// error, the session-type check is keyed on the authenticator's type,
+        /// and `BACKUP_CODE` is what the backend is refusing.
+        #[arg(long)]
+        authenticator: Option<String>,
+
         /// Try only this session type, by name (e.g. `backup-code`).
         ///
         /// The full sweep is five requests. When the question is narrower than
@@ -95,11 +105,13 @@ fn main() -> std::process::ExitCode {
     let result = match cli.command {
         Command::ProbeSigning {
             client_type,
+            authenticator,
             only,
             delay,
         } => runtime.block_on(probe::run(
             &cli.endpoint,
             &client_type,
+            authenticator.as_deref(),
             only.as_deref(),
             delay,
         )),

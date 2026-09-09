@@ -33,6 +33,7 @@ tonic        = { workspace = true }
 tonic-prost  = { workspace = true }
 tonic-web    = { workspace = true }
 tower        = { workspace = true }
+uuid         = { workspace = true }
 
 [dev-dependencies]
 hex    = { workspace = true }

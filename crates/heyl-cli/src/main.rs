@@ -25,10 +25,30 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Log in and store a session.
-    Login {
-        #[command(subcommand)]
-        method: LoginMethod,
+    /// Recover access with a recovery code, and store a session.
+    ///
+    /// This is **not** a login. heylogin treats a recovery code as an account
+    /// recovery: the server disconnects your phone's authenticator and its
+    /// locks, and pairing a phone again afterwards regenerates every profile.
+    /// You will be shown what is about to be disconnected, and asked, unless
+    /// there is nothing left to lose.
+    ///
+    /// The code is read from `HEYL_RECOVERY_CODE`, or prompted for without
+    /// echo, or read from stdin when piped. There is deliberately **no
+    /// `--code` flag**: a recovery code unlocks every vault, so putting it in
+    /// argv would leak it into `ps` output and shell history.
+    Recovery {
+        /// The account's email address.
+        #[arg(long, env = "HEYL_EMAIL")]
+        email: Option<String>,
+
+        /// Proceed without asking.
+        ///
+        /// Required to disconnect anything when there is no terminal to ask
+        /// at — a destructive operation does not run silently just because
+        /// nobody was there to object.
+        #[arg(long)]
+        confirm: bool,
     },
 
     /// Check the key hierarchy against the backend, link by link.
@@ -42,22 +62,6 @@ enum Command {
         /// lands with `list` and `get`.
         #[arg(long, value_enum, default_value_t = output::Format::Human)]
         format: output::Format,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum LoginMethod {
-    /// Log in with a recovery code.
-    ///
-    /// The code is read from `HEYL_RECOVERY_CODE`, or prompted for without
-    /// echo, or read from stdin when piped. There is deliberately **no
-    /// `--code` flag**: a recovery code is a reusable master credential for
-    /// every vault, so putting it in argv would leak it into `ps` output and
-    /// shell history.
-    Recovery {
-        /// The account's email address.
-        #[arg(long, env = "HEYL_EMAIL")]
-        email: Option<String>,
     },
 }
 
@@ -97,22 +101,25 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
     let ports = adapters.ports();
 
     match cli.command {
-        Command::Login {
-            method: LoginMethod::Recovery { email },
-        } => {
+        Command::Recovery { email, confirm } => {
             let email = match email {
                 Some(email) => email,
                 None => ports.terminal.prompt_line("heylogin email: ")?,
             };
-            let outcome = heyl_app::login::run(
+            let outcome = heyl_app::recovery::run(
                 &ports,
                 &email,
+                if confirm {
+                    heyl_app::recovery::Confirmation::Granted
+                } else {
+                    heyl_app::recovery::Confirmation::Ask("Disconnect and recover? [y/N] ")
+                },
                 wiring::code_source(),
                 heyl_domain::ChallengeEncoding::Utf8,
                 heyl_domain::SessionType::BackupCode,
             )
             .await?;
-            output::login(&outcome);
+            output::recovery(&outcome);
             Ok(std::process::ExitCode::SUCCESS)
         }
 

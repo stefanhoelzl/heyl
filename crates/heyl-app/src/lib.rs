@@ -8,16 +8,17 @@
 //!
 //! Two use cases carry M2:
 //!
-//! * [`login`] — `CreateChallenge` → recovery code → Argon2id → sign →
-//!   `CreateTokens`, self-granting an unlock on the way through so that a
-//!   *later, separate* invocation can decrypt.
+//! * [`recovery`] — `CreateChallenge` → confirm → recovery code → Argon2id →
+//!   sign → `CreateTokens`, self-granting an unlock on the way through so that
+//!   a *later, separate* invocation can decrypt. It is a **recovery**, not a
+//!   sign-in: heylogin deletes the push authenticator as a side effect.
 //! * [`doctor`] — `Sync` → recover the seed from that grant → walk the whole
 //!   key hierarchy, comparing every derived public key against the one the
 //!   backend publishes, then decrypt every vault.
 
 pub mod doctor;
 pub mod error;
-pub mod login;
+pub mod recovery;
 pub mod unlock;
 
 pub use error::{AppError, ExitCode};

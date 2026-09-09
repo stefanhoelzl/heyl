@@ -28,6 +28,14 @@ pub enum AppError {
     #[error("this account has no recovery code configured; use another method")]
     NoRecoveryAuthenticator,
 
+    /// A recovery would have disconnected something and the user did not agree.
+    ///
+    /// Also raised when there is something to lose and the command is running
+    /// without a terminal to ask at: a destructive operation must not proceed
+    /// silently because nobody was there to object.
+    #[error("cancelled: nothing was changed. Pass --confirm to proceed without being asked")]
+    NotConfirmed,
+
     /// The backend refused our challenge signature.
     ///
     /// At M2 this is the signal that [`heyl_domain::ChallengeEncoding`] is

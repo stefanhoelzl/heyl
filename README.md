@@ -11,20 +11,27 @@ TOTP codes and custom fields from your vault in a shell or a script.
 
 ## Status
 
-**Early implementation — M2 of 11 is built; the login path is not yet confirmed
-against a live account.** There is a `heyl` binary, and it does two things:
-
-```sh
-heyl login recovery --email you@example.com   # HEYL_RECOVERY_CODE, or a hidden prompt
-heyl doctor                                   # walk the key hierarchy, link by link
-```
+**Early implementation — M2 of 11 is done and confirmed against a real account.**
+`heyl doctor` reports **37 passed, 0 failed**: all eight derivation links across
+four profiles, each byte-compared against the key heylogin publishes, and all
+five vaults decrypted. The reverse engineering is correct.
 
 It is not usable as a password manager yet — reading logins is M3.
+
+What the binary does today:
+
+```sh
+heyl recovery --email you@example.com   # recover access with a recovery code
+heyl doctor                             # walk the key hierarchy, and decrypt every vault
+```
+
+`heyl recovery` is **not** a login — see below. A login arrives with M4's phone
+swipe; the mechanism already exists in `tools/heyl-fixtures`.
 
 | | |
 |---|---|
 | [`DESIGN.md`](DESIGN.md) | Architecture, security model, command surface, milestones M0–M11 |
-| [`HEYLOGIN_SPEC.md`](HEYLOGIN_SPEC.md) | The protocol, reverse-engineered from published client bundles |
+| [`HEYLOGIN_SPEC.md`](HEYLOGIN_SPEC.md) | The protocol: client bundles, live probing, and heylogin's own whitepapers, marked by source |
 | [`crates/heyl-crypto/`](crates/heyl-crypto/) | §2 primitives, `deriveSecretFromSeed`, the context salts — deterministic, `mlock`ed, no `unsafe` |
 | [`crates/heyl-domain/`](crates/heyl-domain/) | Identifiers, locks, heymerge-compatible timestamps, the authenticator → profile → vault key chain |
 | [`crates/heyl-ports/`](crates/heyl-ports/) | The port traits — the backend, keychain, terminal, clock, randomness |
@@ -33,29 +40,31 @@ It is not usable as a password manager yet — reading logins is M3.
 | [`crates/heyl-cli/`](crates/heyl-cli/) | The `heyl` binary and the composition root |
 | [`descriptors/`](descriptors/) | The schema as a `FileDescriptorSet` — 19 services, 123 methods, extraction verified lossless |
 | [`tests/fixtures/protocol/`](tests/fixtures/protocol/) | Recorded gRPC-Web exchanges: the happy path and three error shapes |
-| [`tools/extract-protos.py`](tools/extract-protos.py) | Regenerates and re-verifies the schema in one command |
+| [`tools/`](tools/) | Development tools. The only code here that talks to a real account |
+| [`vendor/tonic-web/`](vendor/) | Upstream, with a one-line fix for dropped gRPC-Web trailers |
 
-**What is and is not established.** The primitives are checked against RFC 8032,
-RFC 4231 and FIPS 180-4 vectors, and the whole M2 path — typed recovery code →
-Argon2id → seed → every link → a decrypted commit — runs offline in CI against a
-synthetic account.
+**What is established.** The primitives are checked against RFC 8032, RFC 4231
+and FIPS 180-4 vectors. The composition — which context salt, concatenated in
+which order, truncated where — is the part no offline test can settle, because
+fixtures built with our own contexts stay green under a wrong one. That is why
+`heyl doctor` exists: it derives each key and compares it against the public
+half heylogin publishes. Run live, it passes on every link.
 
-What none of that establishes is that the heylogin-specific **composition** —
-which context salt, concatenated in which order, truncated where — agrees with
-heylogin. A mistyped context produces stable, self-consistent, wrong keys and
-the suite stays green, because the fixtures were built with those same contexts.
-This is not a gap that can be closed offline: any artifact proving agreement
-would, by construction, be openable with a committed key.
+**There is no unattended login, and that is a protocol constraint rather than
+missing work.** heylogin offers two ways in without a phone present, and neither
+is available to a third-party client:
 
-So it is confirmed live, once, against a real account — `heyl doctor` compares
-every key it derives against the public half heylogin publishes, and reports
-per link. Two things are still open until that run happens:
+- **Recovery code** — using it makes the server *delete your push authenticator*
+  and its locks (heylogin's Security Whitepaper §6.5.4; we confirmed it by
+  losing one). `heyl recovery` therefore shows you what it is about to
+  disconnect and asks first, and is named for what it is rather than hiding
+  behind the word "login". It costs a phone pairing every time, so it is a way
+  back in, not a way to run unattended.
+- **A stored session** — the unlock expires the next day at 02:00, and the server
+  deletes the blob after 30 hours regardless.
 
-- **What `CreateTokens` actually verifies.** §5 reads as `Ed25519.sign(challenge)`,
-  but §2 says every signing operation is context-prefixed and names no context
-  for this one, so the signed bytes are ambiguous. `heyl-fixtures probe-signing`
-  settles it empirically rather than by guessing.
-- **Whether the derived keys match.** That is what `heyl doctor` is for.
+So a headless box needs a human swipe roughly daily. Device-to-device unlock
+(M10) is the path that changes this.
 
 The `.proto` sources are derived output and are not committed. To read the schema:
 

@@ -1,14 +1,23 @@
 # heylogin Protocol Specification
 
 Reverse-engineered from the Firefox extension **v1.15.813** and the web app (`heylogin.app`), both of
-which ship complete original TypeScript in their `.js.map` source maps (`sourcesContent`). This document
-specifies the wire protocol and cryptography of heylogin independent of any particular client.
+which ship complete original TypeScript in their `.js.map` source maps (`sourcesContent`), and
+cross-checked against heylogin's own published documents. This document specifies the wire protocol
+and cryptography of heylogin independent of any particular client.
 
-> **Provenance & confidence.** Everything here is derived from **client** source (extension +
-> web app). Message shapes, key derivations, and crypto are exact. Backend behaviour (e.g. token
-> lifetime, enforcement of unlock expiry) is **inferred** from the client and is marked where relevant;
-> the server (Go) is not part of these bundles. The protobuf schema is authoritative — it is embedded
-> as `FileDescriptorProto`s inside the generated `*_pb.ts` files.
+> **Provenance & confidence.** Three independent sources, and they are marked throughout where they
+> disagree:
+>
+> | source | what it settles |
+> |---|---|
+> | **Client source** — extension + web app `sourcesContent` | message shapes, key derivations, crypto. Exact. |
+> | **Live probing** — against a real account | backend behaviour the clients cannot show: which requests are accepted, which errors come back. Marked *observed*. |
+> | **heylogin Security Whitepaper v3.8** (2026-07-01) and **Compliance Whitepaper v3.0** — `https://www.heylogin.com/en/trust-center` | design intent, server-side behaviour, and the parts of the model no client reveals. Marked *whitepaper*. |
+>
+> Where the whitepaper and the shipped clients disagree, **the clients win** and the discrepancy is
+> noted — the whitepaper is a description, the code is the protocol. The protobuf schema is
+> authoritative for message shapes: it is embedded as `FileDescriptorProto`s inside the generated
+> `*_pb.ts` files.
 
 ---
 
@@ -78,7 +87,17 @@ status 16 / code 30100 "Could not identify client"; rejected ones give status 7 
 
 ## 2. Cryptographic primitives (`lib-vault-crypto`)
 
-All primitives are libsodium-equivalent, implemented with `@noble`/`@scure`.
+All primitives are libsodium-equivalent, implemented with `@noble`/`@scure`. *Whitepaper §3.3*
+gives the same set from the vendor's side — Curve25519 (`@noble/curves`), XSalsa20-Poly1305
+(`@noble/ciphers`, libsodium on mobile for autofill performance), Argon2id, and ChaCha20-Poly1305
+via `age` for *server backups only*. Two points worth carrying:
+
+* **Argon2id is used for the backup code and nowhere else.** Nothing else in heylogin is
+  password-derived.
+* **The seed is always 256 bits**, on every platform, chosen by heylogin rather than by the
+  hardware (*whitepaper §3.4*). What differs per platform is how it is protected at rest: wrapped
+  by an Android KeyStore AES key, wrapped via the iOS Keychain under a Secure Enclave AES-256-GCM
+  key, or — for FIDO2 with PRF — not wrapped at all but *derived* from the key's PRF output.
 
 - **KDF** — `deriveSecretFromSeed(seed, secondary, salt, len)`:
   ```
@@ -230,24 +249,67 @@ Server-stored per authenticator (`Authenticator`): the derived public keys, a `s
 | `ORGANIZATION_SERVICE` (8) | org admin-created service profile | — |
 
 ### Recovery code (`BACKUP_CODE`)
+
+> ⚠ **Using it is an account *recovery*, not a login.** *Whitepaper §6.5.4*: "When either the
+> platform backup or backup code authenticator are used, the server side will **remove the push
+> authenticator and all its locks**", and "the server side only allows for replacing the primary
+> authenticator with a new one. Other operations are denied."
+>
+> *Observed*: confirmed the hard way. An account with a `PUSH` and a `BACKUP_CODE` authenticator
+> had the `PUSH` one deleted by successful `CreateTokens` calls against the `BACKUP_CODE`
+> authenticator. Recovery is by re-pairing the phone, which then "regenerates all profiles …
+> replacing all Profile-Authenticator-Locks and all Vault-Profile-Locks", invalidating every key
+> recorded beforehand.
+>
+> A client must therefore **not** treat this as a routine sign-in path.
+
 - The seed is `Argon2id(password = utf8(code), salt = b64decode(saltBase64), memory = memoryCost,
   time = iterations, parallelism, hashLen = 32)` (`src/util/recovery/calculateRecoverySeed.ts`), with
   parameters from the authenticator's `secretInfo`
   (`RecoverySecretInfo = { checksum, recoveryParameters }`, where
   `recoveryParameters = { saltBase64, iterations, memoryCost, parallelism }`).
+  **Always read the parameters from `secretInfo`** — the whitepaper documents 3 iterations,
+  parallelism 1 and 256 MiB, but an account *observed* in the wild returned
+  `memoryCost = 49152` (48 MiB), `iterations = 6`, `parallelism = 2`. Existing authenticators
+  keep the parameters they were created with.
+- The salt is a **256-bit** server-side value, unique per authenticator, so precomputation does not
+  apply and each code must be attacked on its own (*whitepaper §6.3.4*).
 - **The code is verifiable offline.** `checksum` is base64 of `SHA512(seed)[:32]`, so a client can
   reject a mistyped recovery code locally (`authenticator/recoverySecret.ts`) — but **not before
   any network call**: the checksum and the Argon2 parameters both live in `secretInfo`, which
   arrives with `CreateChallenge`. The saving is a rejected `CreateTokens` round trip, and a
   precise error instead of a backend one.
-- Code format: six groups of four digits — `1234-5678-9012-3456-7890-1234` — hashed **including the dashes**.
-- **Reusable**, not one-time: it is a standing authenticator, invalidated only by explicit regeneration
-  (`onlineInternalRegenerateRecovery` deletes the old + adds a new one). `secretInfo` here is the checksum
-  and Argon2 params (not the seed), so the code itself is still required.
+  Note the checksum is an offline *verifier for the seed*: publishing one hands an attacker an
+  oracle to test candidate codes against.
+- Code format: six groups of four digits — `1234-5678-9012-3456-7890-1234` — hashed **including the
+  dashes**. `calculateRecoverySeed` performs **no normalisation at all**; it hashes the string as
+  given, so only the canonical spelling works. 24 digits ≈ **79.7 bits** of entropy; digits were
+  chosen over words or hex because they are unambiguous to transcribe by hand and fastest on a
+  numeric soft keyboard (*whitepaper §6.3.4*).
+- **Argon2id is used here and nowhere else** in heylogin (*whitepaper §3.3*).
+- **Reusable**, in that the code itself is a standing credential invalidated only by explicit
+  regeneration (`onlineInternalRegenerateRecovery` deletes the old + adds a new one) — but see the
+  warning above: each *use* tears down the push authenticator, so it is not repeatable without
+  re-pairing in between. `secretInfo` here is the checksum and Argon2 params (not the seed), so the
+  code itself is still required.
+- *Observed*: **`CreateTokens` from a `BACKUP_CODE` authenticator is refused for browser-family
+  client types.** `CLIENT_TYPE_CLI` (400), `CLIENT_TYPE_WEB` (100) and `CLIENT_TYPE_EXT` (300) all
+  return `grpc-status 3` with `DomainError 30460 INVALID_SESSION_TYPE`, for **every** value of
+  `session_type` including the proto3 zero; `CLIENT_TYPE_AND` (200) and `CLIENT_TYPE_IOS` (210) are
+  accepted. Consistently, no shipped surface exposes recovery login: `LoginManager.initiateLogin`
+  returns `{ push, dummy, webauthn }`, and `initiateLoginForRecovery` is called from exactly one
+  place in either bundle — heylogin's internal debug harness, on `ClientType.TEST`.
 
 ### WebAuthn / FIDO (`WEBAUTHN`)
 - `seed = deriveSecretFromSeed(prf, null, 'salt-authenticator-webauthn-seed-')`, where `prf` is the key's
-  PRF/`hmac-secret` output for the stored `prfSalt` (`login/flow/webauthn.ts`).
+  PRF/`hmac-secret` output for the stored `prfSalt` (`login/flow/webauthn.ts`). *Whitepaper §3.4*
+  describes the same thing from the other side: "heylogin sends a salt to the security key, which
+  returns a PRF result, and the 256 bit seed is derived from that result".
+- Without PRF support, a FIDO2 device is **not** a standalone authenticator: it is paired as a
+  signature-only device, and the server releases the *mobile* authenticator's encrypted seed once
+  the assertion verifies (*whitepaper §6.3.2*). With PRF it can be "upgraded" to a real
+  `WEBAUTHN` authenticator. Platform authenticators (Windows Hello, Touch ID) bind to the **session**
+  that paired them, not to the user.
 - Login requests `userVerification: 'required'` → **touch + PIN/fingerprint**.
 - The WebAuthn assertion uses a **locally generated** challenge and is **never sent to the backend** — the
   FIDO device is purely a local key-derivation gadget; the backend only sees the ordinary seed-signed
@@ -262,9 +324,24 @@ Server-stored per authenticator (`Authenticator`): the derived public keys, a `s
   (`useEmailPair.tsx`: `{ dummy, push, webauthn }`), not only a test artifact. Normal UI hides it.
 
 ### SESSION_UNLOCK
-An internal type representing a session that is unlocked by a **stored unlock grant** rather than a direct
-swipe — the mechanism behind "stay unlocked" and "unlock this device from another device / a security
-key" (§6). `accountState.getPrimaryLoginDevice()` maps it to `SECURITY_KEY`.
+A session that is unlocked by a **stored unlock grant** rather than a direct swipe — the mechanism
+behind "stay unlocked" and "unlock this device from another device / a security key" (§6).
+`accountState.getPrimaryLoginDevice()` maps it to `SECURITY_KEY`.
+
+*Whitepaper §6.5.3* gives it a concrete purpose: it is what an **organisation user with no
+smartphone** gets. A FIDO2-only user is onboarded with a `SESSION_UNLOCK` authenticator as their
+*only* authenticator, and the encrypted authenticator seed "will never be deleted on the server even
+if the session is locked, as it cannot be recovered". That has two consequences worth knowing: such
+an account is limited to a single session, and losing that session (clearing browser storage) locks
+the user out entirely — only an organisation admin can recover them.
+
+### Organisation onboarding (context for `ORGANIZATION_SERVICE` and free profiles)
+*Whitepaper §6.5.2.* An admin creates an organisation profile for a new member in a **free** state —
+no key material, and empty `VaultProfileLock`s that merely record intended membership. The member
+claims it with a **start code**: six characters as a two-character prefix and four-character suffix,
+`HL-A1B2`. Three wrong attempts block the code until an admin regenerates it, which is what lets it
+be so short. Claiming creates the profile seeds and `ProfileAuthenticatorLock`s; the admin then
+replaces the empty locks with real ones, needing only the profile's public keys.
 
 ### ORGANIZATION_SERVICE
 Both a `ProfileType` and `AuthenticatorType`: a **non-human org service account**, created by an org admin
@@ -292,10 +369,35 @@ seed is obtained. Once a seed is available:
 
 ```
 loginSigPrivKey = deriveSigningKeyPair(seed, null, 'salt-authenticator-login-signing-key-')
-response        = Ed25519.sign(challenge, loginSigPrivKey)
+response        = Ed25519.sign(utf8(challenge), loginSigPrivKey)     # unprefixed
 CredentialService.CreateTokens(authenticatorId, challenge, response, sessionUnlock?, sessionType)
    → { accessToken, sessionId, tokenVersion }         # bearer token (JWT)
 ```
+
+**What exactly is signed.** `finishChallenge.ts` calls `signString(loginSigPrivKey, challenge, null)`,
+and `signString(key, data, salt) = sign(key, decodeUTF8(data), salt)` with
+`sign(…, salt = null) = ed25519.sign(data)`. So the signed message is the challenge's **UTF-8 bytes,
+with no context prefix** — the one signing operation in heylogin that is not context-prefixed (§2).
+*Observed*: confirmed against the backend — corrupting one bit of the signature draws
+`DomainError 30400 INVALID_SIGNATURE`, while the correct signature is accepted.
+
+**The challenge is a JWT**, not an opaque blob or base64: roughly 212 characters of
+`{"iss":"challenge","sub":"<userId>","exp":<unix>}`. It is signed as the *string*, dots and all —
+which is also why any attempt to base64-decode it first fails outright.
+
+**`sessionType` is a property of the client, not of the authentication method** — it is a
+`LoginManager` constructor argument (`login/manager.ts`). What the shipped clients send:
+
+| flow | sessionType |
+|---|---|
+| web app, fresh login (`useEmailPair`, `useQrPair`) | `SESSION_TYPE_CONNECTED` |
+| re-login with a stored authenticator (`clientCore.ts`) | `SESSION_TYPE_SELF_UNLOCKING_PRIMARY` |
+| recovery, in heylogin's debug harness on `ClientType.TEST` | `SESSION_TYPE_BACKUP_CODE` |
+
+*Observed*: `session_type` is **not** what the backend validates first. `DomainError 30460
+"invalid session type"` is raised on the **authenticator**: a `BACKUP_CODE` authenticator is refused
+for every session type from a browser-family client, while naming a different authenticator id in the
+identical request changes the error to `authenticator not found`. See §4.
 
 `CredentialService.CreateChallenge(email? , backupAuthenticatorId?, userId?)` returns
 `{ userId, challenge, authenticators[] }` (each with `id`, `authenticatorType`, `secretInfo`, and for
@@ -329,18 +431,31 @@ it is used only locally to derive the seed from the key's PRF output.
 1. Client derives a session keypair `deriveEncryptionKeyPair(random, null, 'salt-long-poll-login-encryption-key-')`
    and displays a QR = `https://heylogin.app/qr/#<base64url(pubKey)>` (`client-core/src/util/qrUris.ts`).
 2. Client calls `CredentialService.CreateLongPollChannelChallenge(publicKeyHash = base64(SHA512(pubKey)[:32]))`,
-   which **long-polls** until a phone approves.
+   which **long-polls** until a phone approves. (*Whitepaper §6.4.2* calls this hash "SHA256"; both
+   are 32 bytes, and `hashData` — `SHA512(·)[:32]` — is what the clients compute and what the
+   backend accepts. *Observed*: a channel opened with the SHA512-truncated hash completes normally.)
 3. The phone scans the QR, encrypts the authenticator seed to `pubKey`, and completes the channel; the RPC
    returns `{ userId, challenge, authenticator{id}, authenticatorReply }`.
 4. `authenticatorReply` is an `AuthenticatorReply` protobuf with `encryptedSecretReply.encryptedSecret =
    asymEncrypt(pubKey, seed)`. Client decrypts with the session private key → seed → `CreateTokens`.
 
-A richer variant (`login/flow/pushAuthenticator.ts`) adds a hash-commitment + SAS (`symKeyToSas`) for
-mutual key confirmation over the channel.
+**Scanning is never sufficient.** The app always requires an explicit confirmation that the scanned
+device should be paired, and it ignores a QR URL invoked through its own URL handler, forcing a real
+scan (*whitepaper §5.7*). heylogin is explicit that this leaves QR pairing exposed to phishing and
+Browser-in-the-Middle relaying, and points organisations with elevated requirements at FIDO2 instead.
+
+A variant (`login/flow/pushAuthenticator.ts`) adds a hash-commitment + SAS (`symKeyToSas`) for mutual
+key confirmation over the channel. *Compliance whitepaper §4.4* gives it a purpose rather than
+treating it as an enrichment: it is the path **"for devices without a camera"** — which is what any
+headless or terminal client is. A client that cannot scan should expect to implement the SAS variant,
+not the QR one.
 
 ### Recovery code
 `seed = Argon2id(code, params)` (§4) using the `BACKUP_CODE` authenticator's params from `CreateChallenge`,
 then `CreateTokens` with `sessionType = SESSION_TYPE_BACKUP_CODE`.
+
+**This is a recovery, not a login** — it deletes the push authenticator, and it is refused to
+browser-family client types. See the warning in §4 before using it for anything.
 
 ### WebAuthn / FIDO
 `seed = KDF(key.PRF(prfSalt))` (§4), then `CreateTokens`.
@@ -380,10 +495,30 @@ flowchart LR
 - On a swipe, the granting party stores `encryptedSecret = asymEncrypt(sessionEncPubKey, seed)` on the
   backend with an `expiresAt`. A session reconstructs the seed by decrypting it with its session private
   key (`HighSecurityCache.fromSessionUnlock`).
-- Expiry: `unlockUtils.getUnlockTime()` = **next day at 02:00** (hard cap), plus a shorter,
-  activity-based limit (`SessionService.ExtendSessionUnlock(last_user_activity)`,
-  `unlock_time_limit_minutes`) — the perceived ~hourly auto-lock. After expiry the backend stops serving
-  the blob, so a client that discarded the seed must obtain a new unlock (re-swipe).
+- Expiry, three independent limits:
+  1. `unlockUtils.getUnlockTime()`, the value the *client requests*, is
+     ```js
+     const date = new Date(new Date().getTime() + 86_400_000);  // tomorrow
+     date.setHours(2, 0, 0, 0);                                 // at 2am
+     ```
+     — **always tomorrow at 02:00 local**, never today's. Run at 01:00 it returns a deadline 25
+     hours away, not one hour away; `setHours` is local, and the offset is an absolute
+     86,400,000 ms rather than a calendar day (they differ across a DST transition). "The next
+     02:00" is the natural reading of that code and it is wrong.
+  2. A shorter, activity-based limit (`SessionService.ExtendSessionUnlock(last_user_activity)`,
+     `unlock_time_limit_minutes`) — the perceived ~hourly auto-lock.
+  3. *Whitepaper §6.4.3*: the server "automatically deletes" the encrypted seed **after 30 hours**,
+     regardless of what the client asked for.
+
+  After expiry the backend stops serving the blob, so a client that discarded the seed must obtain a
+  new unlock (re-swipe).
+- The session keypair the blob is encrypted to is **KDF-derived, not raw randomness**:
+  `createUnsignedSessionKeys()` is
+  `deriveEncryptionKeyPair(randomSeed(), null, FIXED_INFO_SESSION_ENCRYPTION_KEY)`. Using the random
+  bytes directly as an X25519 scalar round-trips perfectly against itself and is wrong against
+  everyone else — it diverges only where the public half is published and signed.
+- *Whitepaper §6.4.3*: locked/unlocked is an **implicit state** — "the presence of an encrypted
+  authenticator seed inside a session means that the session is unlocked". There is no separate flag.
 - **Device-to-device / security-key unlock**: a locked session publishes its signed session `encPubKey`
   and calls `SessionService.RequestSessionUnlock(source)` (broadcast via centrifugo). An already-unlocked
   session verifies that `encPubKey`'s signature against trusted authenticator keys
@@ -394,15 +529,23 @@ flowchart LR
 
 ### Security model (consequence)
 The backend never holds any plaintext key; all decryption is client-side, so the backend **cannot enforce**
-"you may decrypt now". The re-swipe/hourly limit is a **cooperative control** that assumes the client
-discards the seed when its unlock expires — clients are built to persist only *storable* keys, never the
+"you may decrypt now" *within* an unlock window. It can, and does, stop serving the blob: the
+whitepaper's 30-hour server-side deletion means expiry enforcement is **documented rather than
+inferred**. Within the window, the re-swipe/hourly limit is a **cooperative control** that assumes the
+client discards the seed when its unlock expires — clients are built to persist only *storable* keys, never the
 seed. A client that **retains** the seed from a single unlock therefore has **indefinite** high-security
 access; combined with §4, a single high-security unlock also suffices to **enroll a new (possibly
 UI-hidden) non-expiring authenticator**. Neither is cryptographically invisible — the seed's origin and any
 authenticator change are recorded (authenticator chain, sync, likely audit log). Revocation is deleting the
 authenticator (which rotates its seed). This is the inherent trade-off of client-side E2EE: security
 depends on trusted client software forgetting the secret. *(Backend expiry enforcement is inferred; the
-client architecture only makes sense if it holds.)*
+client architecture only makes sense if it holds — and *whitepaper §6.4.3* confirms it.)*
+
+**A locked session is not keyless.** *Whitepaper §6.4.3*: an unlocked session may persist any
+*storable* key pair — in practice `profileSeedEnc_s`, `vaultKeyEnc_s` and `sig_s` — which lets a
+locked client decrypt `vaultKey_s` and read titles, usernames and websites, but not passwords, TOTP
+secrets or protected custom fields. This is what the extension's on-page overlay uses. A client may
+of course decline to persist them, at the cost of needing an unlock for every read.
 
 ---
 
@@ -427,6 +570,25 @@ Each lock is guarded by a **key generation**: `VaultProfileLock.lockingProfileKe
 must equal the unlocking profile's `keyGenerationId`, or the unlock is refused rather than
 attempted. `ProfileAuthenticatorLock` is selected by matching `authenticatorId`.
 
+*Observed*: `ProfileAuthenticatorLock` also carries `profile_id` and `profile_key_generation_id`,
+but the backend leaves **both empty** when the lock is nested inside the `SyncUpdateProfile` that
+already identifies it — which is every lock on the login path. A client must inherit them from the
+enclosing profile rather than require them, while still rejecting a *stated* value that disagrees.
+
+**Which profiles exist** (*whitepaper §6.3.5*). The mobile app creates two on setup, and more appear
+with organisations:
+
+| profile | purpose |
+|---|---|
+| Inbox | the user's "public address" — what others encrypt to when sending them something |
+| Preferences | metadata: session names, and the optional backup code so it can be shown again on another device |
+| Private | optional; the Private Vault of personal logins (the free personal tier) |
+| Organization | one per member, represents membership and reaches the org's teams |
+| Organization Admin | the cryptographic administrator; reached from a member profile via `ProfileProfileLock` |
+
+Note the consequence of the Preferences profile: **the backup code is itself stored in a vault**, so
+anyone who can decrypt that vault can read it.
+
 `VaultService.ListCommits(vaultId, latestCommitId?, latestFirstCommitId?, forceLocks)` returns the vault's
 `newer_commits[]` plus the caller's `profile_lock` / `admin_profile_lock` (a `VaultProfileLock`). Profiles
 also chain to each other via `ProfileProfileLock` (a profile unlocked from an upstream profile).
@@ -434,6 +596,15 @@ also chain to each other via `ProfileProfileLock` (a profile unlocked from an up
 ### Commits & serialization
 - A commit's `blob = symEncrypt(vaultSecret, serialize(state))`; `Commit.getContent(secret) =
   symDecrypt(secret, blob)`.
+- *Whitepaper §6.4.1*: commits are **not cryptographically linked**. They are ordered by their
+  server-side creation time, and applying them in order yields the current state. There is no hash
+  chain to verify.
+- **Key rotation ("regeneration")**, *whitepaper §6.6.1*: a vault is flagged `dirty` when someone
+  who had access should no longer have it. On the next commit the client squashes every commit into
+  a single new one under a fresh `vaultKeyₛ`/`vaultKey_hs`, starts a new **generation**, writes new
+  `VaultProfileLock`s and discards the old commits and locks. Profiles regenerate the same way
+  (new profile seeds, all locks replaced) — notably after any account recovery, which invalidates
+  every key previously observed for that account.
 - `serialize.ts`: the first byte selects the format — `0x01` = Snappy-compressed (raw block, SnappyJS),
   `0x5B '['` = uncompressed JSON (automerge), `0x7B '{'` = uncompressed JSON (heymerge). Payload is
   `JSON.stringify(content)`.

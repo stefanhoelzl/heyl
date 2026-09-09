@@ -148,6 +148,13 @@ impl GrpcClient {
     /// validated on unauthenticated methods, and we send our real version
     /// either way rather than claiming to be something we are not.
     async fn request<T>(&self, message: T) -> Result<Request<T>, ApiError> {
+        self.request_as(message, &self.config.client_type).await
+    }
+
+    /// Build a request that identifies as a specific client type.
+    ///
+    /// Exists for exactly one caller: see [`crate::CLIENT_TYPE_RECOVERY`].
+    async fn request_as<T>(&self, message: T, client_type: &str) -> Result<Request<T>, ApiError> {
         let mut request = Request::new(message);
         let meta = request.metadata_mut();
 
@@ -161,7 +168,7 @@ impl GrpcClient {
         };
 
         insert(meta, "client-id", &self.config.client_id)?;
-        insert(meta, "client-type", &self.config.client_type)?;
+        insert(meta, "client-type", client_type)?;
         insert(meta, "client-version", &self.config.client_version)?;
         insert(meta, "user-agent", &self.config.user_agent)?;
 
@@ -345,24 +352,39 @@ impl HeylApi for GrpcClient {
             heyl_proto::credential_service_client::CredentialServiceClient<_>
         );
         let request = self
-            .request(heyl_proto::CreateTokensRequest {
-                authenticator_id: authenticator_id.to_string(),
-                challenge: challenge.to_owned(),
-                response: response.to_vec(),
-                session_unlock: unlock.map(|u| heyl_proto::create_tokens_request::SessionUnlock {
-                    encrypted_secret: u.encrypted_secret,
-                    expires_at: Some(prost_types::Timestamp {
-                        seconds: u.expires_at.as_millisecond().div_euclid(1000),
-                        nanos: i32::try_from(u.expires_at.as_millisecond().rem_euclid(1000))
-                            .unwrap_or(0)
-                            * 1_000_000,
+            .request_as(
+                heyl_proto::CreateTokensRequest {
+                    authenticator_id: authenticator_id.to_string(),
+                    challenge: challenge.to_owned(),
+                    response: response.to_vec(),
+                    session_unlock: unlock.map(|u| {
+                        heyl_proto::create_tokens_request::SessionUnlock {
+                            encrypted_secret: u.encrypted_secret,
+                            expires_at: Some(prost_types::Timestamp {
+                                seconds: u.expires_at.as_millisecond().div_euclid(1000),
+                                nanos: i32::try_from(
+                                    u.expires_at.as_millisecond().rem_euclid(1000),
+                                )
+                                .unwrap_or(0)
+                                    * 1_000_000,
+                            }),
+                            // A single-use grant would be consumed by the first Sync,
+                            // which is exactly the read the grant exists to enable (§6).
+                            single_use: false,
+                        }
                     }),
-                    // A single-use grant would be consumed by the first Sync,
-                    // which is exactly the read the grant exists to enable (§6).
-                    single_use: false,
-                }),
-                session_type: map::session_type(session_type) as i32,
-            })
+                    session_type: map::session_type(session_type) as i32,
+                },
+                // A recovery is the one call that does not identify as
+                // CLIENT_TYPE_CLI, because heylogin refuses it if it does. Keyed on
+                // the session type rather than plumbed down from the app, so
+                // `heyl-app` never has to know a client type exists.
+                if session_type == SessionType::BackupCode {
+                    crate::CLIENT_TYPE_RECOVERY
+                } else {
+                    &self.config.client_type
+                },
+            )
             .await?;
         let response = client
             .create_tokens(request)

@@ -1,6 +1,6 @@
 //! Binding adapters to ports. The one place a concrete adapter is named.
 
-use heyl_app::{AppError, Ports, login::CodeSource};
+use heyl_app::{AppError, Ports, recovery::CodeSource};
 use heyl_grpc::{GrpcClient, GrpcConfig};
 use heyl_platform::{HeadlessSecretStore, KeyringStore, OsRandom, SystemClock, SystemTerminal};
 use heyl_ports::SecretStore;
@@ -62,7 +62,7 @@ impl Adapters {
 /// The environment first, then the terminal. Never argv — there is no `--code`
 /// flag to read it from, on purpose.
 pub fn code_source<'a>() -> CodeSource<'a> {
-    std::env::var(heyl_app::login::CODE_ENV).map_or(CodeSource::Ask("recovery code: "), |code| {
+    std::env::var(heyl_app::recovery::CODE_ENV).map_or(CodeSource::Ask("recovery code: "), |code| {
         CodeSource::Given(Zeroizing::new(code))
     })
 }

@@ -105,12 +105,15 @@ impl AuthenticatorKeys {
     ///
     /// # Errors
     /// [`DomainError::NoLockForAuthenticator`] if the lock is for a different
-    /// authenticator; [`DomainError::Crypto`] if it does not open.
+    /// authenticator; [`DomainError::KeyGenerationMismatch`] if the profile has
+    /// been re-keyed since the lock was written; [`DomainError::Crypto`] if it
+    /// does not open.
     pub fn unlock_storable_profile_seed(
         &self,
         lock: &ProfileAuthenticatorLock,
+        generation: &KeyGenerationId,
     ) -> Result<ProfileSeed<Storable>, DomainError> {
-        self.check_lock(lock)?;
+        self.check_lock(lock, generation)?;
         ProfileSeed::from_plaintext(
             &self
                 .profile_seed_encryption
@@ -122,12 +125,15 @@ impl AuthenticatorKeys {
     ///
     /// # Errors
     /// [`DomainError::NoLockForAuthenticator`] if the lock is for a different
-    /// authenticator; [`DomainError::Crypto`] if it does not open.
+    /// authenticator; [`DomainError::KeyGenerationMismatch`] if the profile has
+    /// been re-keyed since the lock was written; [`DomainError::Crypto`] if it
+    /// does not open.
     pub fn unlock_high_security_profile_seed(
         &self,
         lock: &ProfileAuthenticatorLock,
+        generation: &KeyGenerationId,
     ) -> Result<ProfileSeed<HighSecurity>, DomainError> {
-        self.check_lock(lock)?;
+        self.check_lock(lock, generation)?;
         ProfileSeed::from_plaintext(
             &self
                 .profile_seed_encryption
@@ -135,14 +141,24 @@ impl AuthenticatorKeys {
         )
     }
 
-    fn check_lock(&self, lock: &ProfileAuthenticatorLock) -> Result<(), DomainError> {
-        if lock.authenticator_id == self.id {
-            Ok(())
-        } else {
-            Err(DomainError::NoLockForAuthenticator {
+    fn check_lock(
+        &self,
+        lock: &ProfileAuthenticatorLock,
+        generation: &KeyGenerationId,
+    ) -> Result<(), DomainError> {
+        if lock.authenticator_id != self.id {
+            return Err(DomainError::NoLockForAuthenticator {
                 authenticator_id: self.id,
-            })
+            });
         }
+        if lock.profile_key_generation_id != *generation {
+            return Err(DomainError::KeyGenerationMismatch {
+                profile_id: lock.profile_id,
+                profile: generation.clone(),
+                lock: lock.profile_key_generation_id.clone(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -220,15 +236,15 @@ impl<T: Tier> ProfileSeed<T> {
     fn check_generation(
         lock: &VaultProfileLock,
         profile_id: ProfileId,
-        generation: KeyGenerationId,
+        generation: &KeyGenerationId,
     ) -> Result<(), DomainError> {
-        if lock.locking_profile_key_generation_id == generation {
+        if lock.locking_profile_key_generation_id == *generation {
             Ok(())
         } else {
             Err(DomainError::KeyGenerationMismatch {
                 profile_id,
-                profile: generation,
-                lock: lock.locking_profile_key_generation_id,
+                profile: generation.clone(),
+                lock: lock.locking_profile_key_generation_id.clone(),
             })
         }
     }
@@ -244,7 +260,7 @@ impl ProfileSeed<Storable> {
         &self,
         lock: &VaultProfileLock,
         profile_id: ProfileId,
-        generation: KeyGenerationId,
+        generation: &KeyGenerationId,
     ) -> Result<VaultSecret, DomainError> {
         Self::check_generation(lock, profile_id, generation)?;
         let key = self.vault_key_encryption_key()?;
@@ -264,7 +280,7 @@ impl ProfileSeed<HighSecurity> {
         &self,
         lock: &VaultProfileLock,
         profile_id: ProfileId,
-        generation: KeyGenerationId,
+        generation: &KeyGenerationId,
     ) -> Result<ProtectedSecret, DomainError> {
         Self::check_generation(lock, profile_id, generation)?;
         let key = self.vault_key_encryption_key()?;

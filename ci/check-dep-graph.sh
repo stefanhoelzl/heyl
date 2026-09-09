@@ -19,6 +19,7 @@ declare -A forbidden=(
   [heyl-domain]="heyl-vault heyl-ports heyl-app heyl-proto heyl-grpc heyl-platform heyl-cli tokio hyper tonic prost reqwest"
   [heyl-vault]="heyl-ports heyl-app heyl-proto heyl-grpc heyl-platform heyl-cli tokio hyper tonic prost reqwest"
   [heyl-ports]="heyl-app heyl-proto heyl-grpc heyl-platform heyl-cli"
+  [heyl-proto]="heyl-crypto heyl-domain heyl-vault heyl-ports heyl-app heyl-grpc heyl-platform heyl-cli"
   [heyl-app]="heyl-proto heyl-grpc heyl-platform heyl-cli tokio hyper tonic"
   [heyl-grpc]="heyl-platform heyl-app"
   [heyl-platform]="heyl-app heyl-grpc"
@@ -45,7 +46,11 @@ done
 # Every crate must opt in to the workspace lints, which is where
 # `unsafe_code = "forbid"` is declared. A crate that omits it is visible here
 # rather than invisible in a missing attribute.
-for manifest in crates/*/Cargo.toml; do
+# `tools/*` are development binaries, excluded from the release and from the
+# publish set (DESIGN.md, M2 decision 23). They may depend on anything, exactly
+# like heyl-cli -- but they still opt in to the workspace lints below.
+for manifest in crates/*/Cargo.toml tools/*/Cargo.toml; do
+  [ -e "$manifest" ] || continue
   if ! grep -Pzoq '\[lints\]\s*\nworkspace = true' "$manifest"; then
     echo "FAIL  $manifest does not opt in to [lints] workspace = true" >&2
     fail=1

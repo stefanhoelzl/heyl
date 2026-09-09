@@ -10,7 +10,8 @@ all-features = true
 # `rustls-platform-verifier`'s `cfg(target_arch = "wasm32")` branch, a crate
 # that is never compiled for anything heyl ships. Linux is musl only: a static
 # musl binary runs on glibc distros too, and gnu resolves to a byte-identical
-# dependency graph anyway.
+# dependency graph anyway. macOS is aarch64 only: Intel Macs are not supported,
+# see DESIGN.md §7.
 #
 # This list is exactly the `build` matrix in .github/workflows/ci.yml, and the
 # two are meant to stay that way: cargo-deny vouches for the graph of the
@@ -18,7 +19,6 @@ all-features = true
 targets = [
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
-    "x86_64-apple-darwin",
     "aarch64-apple-darwin",
     "x86_64-pc-windows-msvc",
     "aarch64-pc-windows-msvc",

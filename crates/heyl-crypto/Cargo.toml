@@ -1,0 +1,31 @@
+[package]
+name        = "heyl-crypto"
+version     = "0.0.0"
+description = "heylogin's cryptographic primitives and key derivation. Internal to `heyl`; no API stability guarantee."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+
+[lints]
+workspace = true
+
+[dependencies]
+crypto_secretbox = { workspace = true }
+crypto_box       = { workspace = true }
+ed25519-dalek    = { workspace = true }
+x25519-dalek     = { workspace = true }
+sha2             = { workspace = true }
+hmac             = { workspace = true }
+argon2           = { workspace = true }
+aes-gcm          = { workspace = true }
+zeroize          = { workspace = true }
+region           = { workspace = true }
+thiserror        = { workspace = true }
+
+[dev-dependencies]
+hex        = { workspace = true }
+serde_json = { workspace = true }
+insta      = { workspace = true }
+proptest   = { workspace = true }

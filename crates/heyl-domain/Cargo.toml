@@ -1,0 +1,24 @@
+[package]
+name        = "heyl-domain"
+version     = "0.0.0"
+description = "heylogin's domain vocabulary and key hierarchy. Internal to `heyl`; no API stability guarantee."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heyl-crypto = { workspace = true }
+uuid        = { workspace = true }
+jiff        = { workspace = true }
+serde       = { workspace = true }
+thiserror   = { workspace = true }
+
+[dev-dependencies]
+hex      = { workspace = true }
+insta    = { workspace = true }
+proptest = { workspace = true }

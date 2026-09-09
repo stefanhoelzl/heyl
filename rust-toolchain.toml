@@ -1,0 +1,9 @@
+# Pinned so CI and every developer agree. `rust-version` in Cargo.toml mirrors
+# this and is bumped with it; there is no back-compat MSRV job, because the
+# product ships as prebuilt binaries and the library crates carry no
+# API-stability guarantee (DESIGN.md §4).
+#
+# Floor is 1.89: aes 0.9.3, via aes-gcm 0.11, requires it.
+[toolchain]
+channel = "1.91.1"
+components = ["rustfmt", "clippy"]

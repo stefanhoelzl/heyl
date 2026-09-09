@@ -1074,6 +1074,7 @@ dependencies = [
 name = "heyl-fixtures"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "clap",
  "heyl-app",
  "heyl-crypto",

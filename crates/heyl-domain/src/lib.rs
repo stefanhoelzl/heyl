@@ -35,4 +35,4 @@ pub use sync::{
     VaultCommits, VaultSummary,
 };
 pub use time::Timestamp;
-pub use vault::{AuthenticatorType, VaultType};
+pub use vault::{AuthenticatorType, SessionType, VaultType};

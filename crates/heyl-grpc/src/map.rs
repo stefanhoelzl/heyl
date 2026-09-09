@@ -95,6 +95,23 @@ fn vault_type(value: i32) -> Option<VaultType> {
     }
 }
 
+/// The domain's session type, on the wire.
+#[must_use]
+pub const fn session_type(value: heyl_domain::SessionType) -> heyl_proto::SessionType {
+    match value {
+        heyl_domain::SessionType::Unspecified => heyl_proto::SessionType::Unknown,
+        heyl_domain::SessionType::SelfUnlockingPrimary => {
+            heyl_proto::SessionType::SelfUnlockingPrimary
+        }
+        heyl_domain::SessionType::SelfUnlockingSecondary => {
+            heyl_proto::SessionType::SelfUnlockingSecondary
+        }
+        heyl_domain::SessionType::BackupOs => heyl_proto::SessionType::BackupOs,
+        heyl_domain::SessionType::BackupCode => heyl_proto::SessionType::BackupCode,
+        heyl_domain::SessionType::Connected => heyl_proto::SessionType::Connected,
+    }
+}
+
 /// A profile's lock on one authenticator.
 ///
 /// `owner` is the profile the lock was *read out of*. The wire message repeats

@@ -71,7 +71,9 @@ pub enum ApiError {
     ClientOutdated,
 
     /// Anything else the backend returned.
-    #[error("backend error ({status}): {message}")]
+    #[error("backend error (grpc {status}{}): {message}{}",
+        domain_code.map(|c| format!(", DomainError {c}")).unwrap_or_default(),
+        if detail.is_empty() { String::new() } else { format!(" — {detail}") })]
     Backend {
         /// The gRPC status code.
         status: i32,
@@ -79,6 +81,8 @@ pub enum ApiError {
         domain_code: Option<i32>,
         /// `grpc-message`, or the domain error's user-facing title.
         message: String,
+        /// heylogin's longer explanation, when it sent one.
+        detail: String,
     },
 
     /// The request never reached the backend, or the response was unreadable.

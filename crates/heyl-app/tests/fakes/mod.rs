@@ -158,6 +158,8 @@ pub struct FakeBackend {
     pub login_verifier: heyl_crypto::VerifyingKey,
     /// Which encoding the signature is expected under.
     pub encoding: heyl_domain::ChallengeEncoding,
+    /// Which session type the backend accepts.
+    pub session_type: heyl_domain::SessionType,
     calls: Mutex<Vec<&'static str>>,
     token: Mutex<Option<String>>,
 }
@@ -180,6 +182,7 @@ impl FakeBackend {
             commits,
             login_verifier,
             encoding: heyl_domain::ChallengeEncoding::Utf8,
+            session_type: heyl_domain::SessionType::BackupCode,
             calls: Mutex::new(Vec::new()),
             token: Mutex::new(None),
         }
@@ -221,9 +224,15 @@ impl HeylApi for FakeBackend {
         _authenticator_id: AuthenticatorId,
         challenge: &str,
         response: &[u8],
+        session_type: heyl_domain::SessionType,
         unlock: Option<SessionUnlockGrant>,
     ) -> Result<Tokens, ApiError> {
         self.record("create_tokens");
+
+        assert_eq!(
+            session_type, self.session_type,
+            "login must send the session type the backend accepts"
+        );
 
         let signature = heyl_crypto::Signature::try_from_slice(response)
             .map_err(|_| ApiError::PermissionDenied { domain_code: None })?;

@@ -3,14 +3,15 @@
 use std::sync::Arc;
 
 use heyl_domain::{
-    Authenticator, AuthenticatorId, Challenge, SyncSnapshot, Tokens, VaultCommits, VaultId,
+    Authenticator, AuthenticatorId, Challenge, SessionType, SyncSnapshot, Tokens, VaultCommits,
+    VaultId,
 };
 use heyl_ports::{ApiError, HeylApi, api::SessionUnlockGrant};
 use tokio::sync::RwLock;
 use tonic::{Request, body::Body};
 use tower::Layer as _;
 
-use crate::{CLIENT_TYPE_CLI, map, status::to_api_error};
+use crate::{map, status::to_api_error};
 
 /// How to reach heylogin, and how to identify ourselves.
 #[derive(Debug, Clone)]
@@ -19,6 +20,9 @@ pub struct GrpcConfig {
     pub endpoint: String,
     /// Our own crate version, sent as `client-version`.
     pub client_version: String,
+    /// The `client-type` value. `CLIENT_TYPE_CLI` in every shipped path; the
+    /// probe varies it to find out where a backend constraint actually lives.
+    pub client_type: String,
     /// `user-agent`, which M0 confirmed a custom value is accepted for.
     pub user_agent: String,
 }
@@ -28,6 +32,7 @@ impl Default for GrpcConfig {
         Self {
             endpoint: crate::DEFAULT_ENDPOINT.to_owned(),
             client_version: env!("CARGO_PKG_VERSION").to_owned(),
+            client_type: crate::CLIENT_TYPE_CLI.to_owned(),
             user_agent: format!(
                 "heyl/{} (+{})",
                 env!("CARGO_PKG_VERSION"),
@@ -117,7 +122,7 @@ impl GrpcClient {
                 })
         };
 
-        insert(meta, "client-type", CLIENT_TYPE_CLI)?;
+        insert(meta, "client-type", &self.config.client_type)?;
         insert(meta, "client-version", &self.config.client_version)?;
         insert(meta, "user-agent", &self.config.user_agent)?;
 
@@ -177,6 +182,7 @@ impl HeylApi for GrpcClient {
         authenticator_id: AuthenticatorId,
         challenge: &str,
         response: &[u8],
+        session_type: SessionType,
         unlock: Option<SessionUnlockGrant>,
     ) -> Result<Tokens, ApiError> {
         let mut client = client_for!(
@@ -200,7 +206,7 @@ impl HeylApi for GrpcClient {
                     // which is exactly the read the grant exists to enable (§6).
                     single_use: false,
                 }),
-                session_type: heyl_proto::SessionType::BackupCode as i32,
+                session_type: map::session_type(session_type) as i32,
             })
             .await?;
         let response = client

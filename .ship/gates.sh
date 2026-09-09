@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
-# Local gate for /ship. Mirrors the PR-triggered jobs in .github/workflows/ci.yml,
-# so a merge cannot be blocked by something this did not already catch.
+# Local gate for /ship. Mirrors as much of .github/workflows/ci.yml as one
+# machine can reproduce -- which, since the cross-platform build matrix landed,
+# is no longer all of it. CI now tests and builds six targets on native runners
+# (linux, macOS and Windows, each x64 and aarch64); this machine is one of those
+# OSes on one of those architectures, so a Windows-only or aarch64-only break is
+# a class of failure this gate structurally cannot see. Requiring it locally
+# would mean owning six machines.
+#
+# So the claim is narrower than it was: a merge cannot be blocked by anything
+# catchable on a single host that this did not already catch.
 set -euo pipefail
 
 # The eight snapshots under crates/heyl-domain/tests/snapshots/ are the only

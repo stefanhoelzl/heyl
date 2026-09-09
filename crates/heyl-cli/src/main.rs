@@ -8,12 +8,34 @@
 mod output;
 mod wiring;
 
+use std::sync::LazyLock;
+
 use clap::{Parser, Subcommand};
 use heyl_app::{AppError, ExitCode};
 
+/// What `--version` prints: the crate version, and the commit it was built
+/// from.
+///
+/// `HEYL_BUILD_SHA` is set by the artifact build in
+/// `.github/workflows/ci.yml`. `option_env!` is what keeps a plain
+/// `cargo build` working without it -- and printing no sha there is the honest
+/// answer, because a local build is a working tree rather than a commit. Until
+/// a version number is actually assigned (DESIGN.md §7) every build says
+/// `0.0.0`, so the sha is the only thing that tells two binaries apart.
+///
+/// A `LazyLock<String>` rather than a `const`: the two halves cannot be
+/// concatenated at compile time without pulling in a crate for it, and passing
+/// clap an owned `String` would mean enabling its `string` feature. Borrowing
+/// from a `static` costs one lazy allocation at startup and leaves the
+/// dependency surface alone.
+static VERSION: LazyLock<String> = LazyLock::new(|| match option_env!("HEYL_BUILD_SHA") {
+    Some(sha) => format!("{} ({sha})", env!("CARGO_PKG_VERSION")),
+    None => env!("CARGO_PKG_VERSION").to_owned(),
+});
+
 /// Unofficial command-line client for heylogin.
 #[derive(Debug, Parser)]
-#[command(name = "heyl", version, about, long_about = None)]
+#[command(name = "heyl", version = VERSION.as_str(), about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,

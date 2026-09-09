@@ -1,0 +1,10 @@
+# `actions/checkout` on the Windows runners uses git's default
+# `core.autocrlf=true`, which would hand the eight `.snap` files under
+# crates/heyl-domain/tests/snapshots/ CRLF endings and fail every `insta`
+# comparison for a reason that has nothing to do with the code. Normalising the
+# whole tree is the fix that also covers tests/fixtures/protocol/ and whatever
+# textual fixture is added next.
+#
+# `descriptors/heylogin.binpb` and the other binary artifacts are detected as
+# binary by `text=auto` and left alone.
+* text=auto eol=lf

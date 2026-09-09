@@ -4,13 +4,24 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Artifacts on demand: the build matrix below uploads a binary per target,
+  # and this is how you get one without pushing a commit.
+  workflow_dispatch:
+
+# Nine jobs a run rather than three, which is the point at which a superseded
+# run is worth cancelling. On main the group carries the run id -- which never
+# repeats -- so a push there is never cancelled by the next one and main keeps a
+# complete CI history.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: fmt · clippy · test
+  lint:
+    name: fmt · clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -22,8 +33,86 @@ jobs:
       # `-D warnings` on the clippy invocation rather than in RUSTFLAGS: a
       # global RUSTFLAGS applies to dependencies too and gives every job a
       # different cache key.
+      #
+      # Both checks are host-independent, so they run once here rather than six
+      # times across the matrix below. The test run moved there.
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace --all-features
+
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # One target failing must not cancel the other five. Whether a break is
+      # Windows-only or everywhere is the first thing worth knowing, and that
+      # answer only exists if every job in the run finishes.
+      fail-fast: false
+      matrix:
+        # A native runner per target, so nothing here needs a cross-linker or
+        # an SDK it does not have. Images are pinned rather than `-latest` for
+        # the same reason rust-toolchain.toml is: when one target goes red, the
+        # question "what changed under it" should have a short answer.
+        #
+        # This list is exactly `[graph] targets` in deny.toml -- cargo-deny
+        # vouches for the graph of the binaries built here, so the two lists
+        # move together.
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+            bin: heyl
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            bin: heyl
+          - target: x86_64-apple-darwin
+            runner: macos-26-intel
+            bin: heyl
+          - target: aarch64-apple-darwin
+            runner: macos-26
+            bin: heyl
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+            bin: heyl.exe
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            bin: heyl.exe
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          target: ${{ matrix.target }}
+
+      # Every build says `0.0.0` until a version is actually assigned
+      # (DESIGN.md §7), so the commit is the only thing telling two binaries
+      # apart. `heyl-cli` reads this with `option_env!` and prints it in
+      # `--version`; it also names the artifact.
+      #
+      # On a pull_request `github.sha` is the ephemeral merge commit, which
+      # nobody can look up afterwards -- the head sha is the useful one. The
+      # truncation is string slicing rather than `git rev-parse`, because a
+      # shallow PR checkout does not necessarily contain that object.
+      - name: Resolve the build sha
+        shell: bash
+        run: |
+          sha="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "HEYL_BUILD_SHA=${sha:0:7}" >> "$GITHUB_ENV"
+
+      # Debug, deliberately: `overflow-checks` are on there, and this is a
+      # workspace full of indexing and arithmetic over key material. The
+      # release build below is a separate compilation of the same graph.
+      - run: cargo test --workspace --all-features --target ${{ matrix.target }}
+
+      # `-p heyl` only. `tools/*` are development binaries that talk to a real
+      # account; they are excluded from the release and must not be shipped.
+      - run: cargo build --release -p heyl --target ${{ matrix.target }}
+
+      # The raw binary, unpackaged. `upload-artifact` re-zips whatever it is
+      # given and does not preserve the executable bit, so a download needs
+      # `chmod +x` -- accepted, in exchange for no packaging step here. Real
+      # archives, checksums and installers arrive with M7.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: heyl-${{ matrix.target }}-${{ env.HEYL_BUILD_SHA }}
+          path: target/${{ matrix.target }}/release/${{ matrix.bin }}
+          if-no-files-found: error
 
   boundaries:
     name: dependency rules

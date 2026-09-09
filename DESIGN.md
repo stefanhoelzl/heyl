@@ -763,6 +763,18 @@ that could fire on its own — which keeps a standing master credential out of C
 green or red for reasons that are about the diff. The cost is that nothing automated notices when
 heylogin's behaviour drifts; only the next manual run does.
 
+**The whole suite runs on every target that ships, not only on the machine that wrote it.**
+`.github/workflows/ci.yml` builds a matrix of the six triples in `deny.toml`'s `[graph] targets`
+— linux-musl, Apple and Windows-MSVC, each `x86_64` and `aarch64` — one native GitHub runner per
+triple, no cross-linker anywhere. Each job runs `cargo test --workspace --all-features` in **debug**
+(so `overflow-checks` stay on, which is the point for code that indexes and does arithmetic over key
+material) and then a separate `--release -p heyl` build whose binary is uploaded as a workflow
+artifact. `fmt` and `clippy` are host-independent and run once, beside the matrix rather than inside
+it. All six are required checks: a target-specific break — a dependency gated to `cfg(unix)`, say —
+fails the pull request that introduced it rather than being discovered whenever someone next tries
+that platform. That is also the reason `.ship/gates.sh` no longer claims to mirror CI completely;
+one machine cannot.
+
 **Recorded flows replay at the wire, not at the port.** The fixtures are re-keyed response *bytes*
 fed through the real adapter, because the two defects M2 actually shipped — a lock-mapping rule and
 reading `DomainError` from the wrong `tonic` API — both lived in `heyl-grpc`, and one of them passed
@@ -819,11 +831,11 @@ actually released.
 | **M4** | **Phone swipe** — long-poll channel, session self-unlock, and the pairing UX. Most of the mechanism already exists from M2: `GrpcClient::create_long_poll_channel_challenge` and the flow in `tools/heyl-fixtures`; M4 promotes it to `heyl login push` and adds the pairing surface | `heyl login push` with a phone; unlock survives to next day 02:00 | M |
 | **M5** | **Session registration** — `SessionMetadata` write, `logout` tombstone, `session list\|revoke` | CLI appears as a named device in the app and is revocable there | M |
 | **M6** | **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy | Full command set; `--format json` stable | M |
-| **M7** | **Distribution** — `cargo-dist` binaries (linux/macOS × x86_64/aarch64), npm optionalDependencies, PyPI wheels | `npx`, `uvx` and curl-installer all run the same artifact | M |
+| **M7** | **Distribution** — the binaries already exist: §6's matrix builds all six targets on every pull request and uploads them. What is left is packaging on top of that — `cargo-dist` archives, checksums, build provenance and a curl installer, npm optionalDependencies, PyPI wheels — and the first real version number, since every build until then says `0.0.0 (<sha>)` | `npx`, `uvx` and curl-installer all run the same artifact | M |
 | **M8** | **Hardening** — zeroization audit, fuzz the vault decoder, threat-model review, docs, **crates.io publish** | Ready to use daily | M |
 | **M9** | **FIDO2 login** — CTAP2 `hmac-secret` via `ctap-hid-fido2`, WebAuthn-PRF salt transform, PIN/UV | A FIDO2 key derives the *same* seed as the web app and logs in | M |
 | **M10** | **Device-to-device unlock** — `RequestSessionUnlock` + Sync polling + cancel-on-abort | An unlocked browser session can unlock the CLI; no phone needed | S |
-| **M11** | **Windows support** — implement the five ports for Windows; no changes above `heyl-platform` | Same test suite green on Windows CI | S |
+| **M11** | **Windows support** — the suite is *already* green on Windows CI, both architectures, from §6's matrix, and that retired the compile question rather than the behaviour one. What remains is the five ports against real Windows APIs: Credential Manager rather than a fake `SecretStore`, a real console for hidden input, WER in place of `RLIMIT_CORE`, and `VirtualLock`'s working-set quota — which `process.rs` raises only under `cfg(unix)`, so the memory-locking probe that is *allowed to be fatal* has never been exercised there. No changes above `heyl-platform` | `heyl recovery` and `heyl doctor` run against a real account on Windows | S |
 
 **Critical path: ~~M0~~ → M1 → M2 → M3.** M0 is done. M1 carries the correctness risk but cannot
 retire it: with no oracle available offline, **M2 is where the reverse engineering is first

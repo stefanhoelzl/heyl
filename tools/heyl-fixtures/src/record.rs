@@ -247,13 +247,14 @@ pub async fn run(endpoint: &str, out: &PathBuf, confirm: bool) -> Result<(), Str
         .map_err(|_| "set HEYL_RECOVERY_CODE (try running under `secrets-env`)".to_owned())?;
 
     let recorder = Recorder::new();
-    let api = recording_client(
-        heyl_grpc::GrpcConfig {
-            endpoint: endpoint.to_owned(),
-            ..heyl_grpc::GrpcConfig::default()
-        },
-        recorder.clone(),
-    )?;
+    let config = heyl_grpc::GrpcConfig {
+        endpoint: endpoint.to_owned(),
+        ..heyl_grpc::GrpcConfig::default()
+    };
+    let context = config.context();
+    // The port over the recording transport: `heyl-app` still sees `HeylApi`,
+    // and what lands in the recording is the gRPC-Web bytes underneath.
+    let api = heyl_grpc::DomainApi::new(recording_client(config, recorder.clone())?, context);
 
     // --- the recovery itself, through heyl-app so the recording is of the
     //     path the product actually takes.

@@ -1,14 +1,14 @@
 //! Binding adapters to ports. The one place a concrete adapter is named.
 
 use heyl_app::{AppError, Ports, recovery::CodeSource};
-use heyl_grpc::{GrpcClient, GrpcConfig};
+use heyl_grpc::{DomainApi, GrpcClient, GrpcConfig};
 use heyl_platform::{HeadlessSecretStore, KeyringStore, OsRandom, SystemClock, SystemTerminal};
 use heyl_ports::SecretStore;
 use zeroize::Zeroizing;
 
 /// Every adapter, owned. `heyl-app` borrows them through [`Ports`].
 pub struct Adapters {
-    api: GrpcClient,
+    api: DomainApi<GrpcClient>,
     store: Box<dyn SecretStore>,
     terminal: SystemTerminal,
     clock: SystemClock,
@@ -36,8 +36,13 @@ impl Adapters {
             Box::new(KeyringStore)
         };
 
+        // The domain port over the raw API, rather than the transport
+        // implementing both. `heyl-app` still sees only `HeylApi`; what changed
+        // is that the mapping and the token now sit in a layer that can be
+        // pointed at something other than a socket (DESIGN.md §4).
+        let context = config.context();
         Ok(Self {
-            api: GrpcClient::new(config)?,
+            api: DomainApi::new(GrpcClient::new(config)?, context),
             store,
             terminal: SystemTerminal,
             clock: SystemClock,

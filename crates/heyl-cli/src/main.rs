@@ -5,6 +5,8 @@
 //! incapable of reaching an OS API or constructing a request; the wiring
 //! happens here, once (DESIGN.md §4).
 
+#[cfg(feature = "api")]
+mod api;
 mod output;
 mod wiring;
 
@@ -73,6 +75,18 @@ enum Command {
         confirm: bool,
     },
 
+    /// heylogin's gRPC surface, by hand. **Unsafe by construction.**
+    ///
+    /// No guards, destructive RPCs reachable by name, key material printable.
+    /// Point it at a throwaway account. Hidden, and only present in a build
+    /// made with `--features api` (DESIGN.md §5).
+    #[cfg(feature = "api")]
+    #[command(hide = true)]
+    Api {
+        #[command(subcommand)]
+        command: api::Api,
+    },
+
     /// Check the key hierarchy against the backend, link by link.
     ///
     /// Recovers the seed from this session's unlock grant, derives every key,
@@ -123,6 +137,18 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
     let ports = adapters.ports();
 
     match cli.command {
+        #[cfg(feature = "api")]
+        Command::Api { command } => match api::run(command, cli.endpoint.as_deref()).await {
+            Ok(()) => Ok(std::process::ExitCode::SUCCESS),
+            // Reported here rather than mapped into `AppError`: this is not a
+            // use case, and the core should not learn a vocabulary for a tool
+            // that is not shipped.
+            Err(e) => {
+                eprintln!("heyl: {e}");
+                Ok(std::process::ExitCode::from(ExitCode::Failure as u8))
+            }
+        },
+
         Command::Recovery { email, confirm } => {
             let email = match email {
                 Some(email) => email,

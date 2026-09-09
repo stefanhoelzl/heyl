@@ -5,6 +5,28 @@
 //! `application/grpc` is rejected at the edge with 505, so there is no
 //! transport choice to make and no escape hatch worth offering (DESIGN.md §4).
 //!
+//! # Two layers, and why
+//!
+//! ```text
+//! heyl-app ──uses──► heyl_ports::HeylApi      domain types, use-case shaped
+//!                         ▲
+//!                    DomainApi<A>             mapping + policy; map.rs lives here
+//!                         ▲
+//!                    HeyloginApi              prost types, 123 methods, generated
+//!                         ▲
+//!                    GrpcClient               transport, stateless
+//! ```
+//!
+//! [`HeyloginApi`] is heylogin's surface as it actually is: one method per RPC,
+//! generated from `descriptors/heylogin.binpb`, taking a [`Request`] that
+//! carries its own metadata and token. Nothing is implicit at that layer, which
+//! is what makes it worth recording and replaying.
+//!
+//! [`DomainApi`] is where a use case's view is assembled: the wire→domain
+//! mapping in [`map`], and the policy that does not belong in a raw
+//! layer — retrying an idempotent read, and the one call that must not identify
+//! as `CLIENT_TYPE_CLI`.
+//!
 //! # Request metadata
 //!
 //! `client-type` is mandatory and validated against the `ClientType` enum: omit
@@ -13,11 +35,82 @@
 //! honestly rather than impersonating the web client.
 
 pub mod client;
+pub mod domain;
 pub mod map;
+pub mod request;
 pub mod status;
 
-pub use client::{GrpcClient, GrpcConfig, LongPollChallenge, Transportable};
+#[cfg(feature = "api")]
+pub mod json;
+
+pub use client::{GrpcClient, GrpcConfig, Transportable};
+pub use domain::{DomainApi, LongPollChallenge};
+pub use request::{ClientContext, Request};
 pub use status::{DomainErrorDetail, decode_details, decode_details_base64, to_api_error};
+
+use heyl_ports::ApiError;
+
+/// A server-streaming response.
+///
+/// Boxed rather than `tonic::Streaming` so a replay stub can yield recorded
+/// messages without owning a transport. Exactly one RPC in the schema needs
+/// it — `domain.SyncService/StreamingSync`.
+pub type MessageStream<T> =
+    std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<T, ApiError>> + Send>>;
+
+/// The generated surface: the [`HeyloginApi`] trait, its implementation over
+/// [`GrpcClient`], `METHODS`, and — under the `api` feature — the dispatch.
+///
+/// Isolated in its own module for the same reason `heyl-proto` isolates its
+/// output: generated code is not ours to lint. 123 near-identical methods trip
+/// `too_many_lines` and `needless_borrow` on a scale that would mean either
+/// contorting the generator to satisfy a style rule or silencing the rule for
+/// hand-written code too. The workspace's real invariants still apply here —
+/// `unsafe_code = "forbid"` among them.
+#[allow(
+    missing_docs,
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    unreachable_pub,
+    rustdoc::all
+)]
+mod generated {
+    use heyl_ports::ApiError;
+
+    use crate::client::{GrpcClient, Transportable};
+
+    include!(concat!(env!("OUT_DIR"), "/api.rs"));
+
+    #[cfg(feature = "api")]
+    include!(concat!(env!("OUT_DIR"), "/dispatch.rs"));
+}
+
+pub use generated::{HeyloginApi, METHODS};
+
+#[cfg(feature = "api")]
+pub use generated::dispatch;
+
+/// A `heyl api` call that could not be made.
+#[cfg(feature = "api")]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum DispatchError {
+    /// No RPC in the schema has this path.
+    #[error("no such method: {method}")]
+    UnknownMethod {
+        /// What was asked for.
+        method: String,
+    },
+
+    /// The request or response could not be transcoded.
+    #[error(transparent)]
+    Json(#[from] json::JsonError),
+
+    /// The call itself failed.
+    #[error(transparent)]
+    Api(#[from] ApiError),
+}
 
 /// The production endpoint.
 pub const DEFAULT_ENDPOINT: &str = "https://heylogin.app/api/v1";
@@ -41,4 +134,8 @@ pub const CLIENT_TYPE_CLI: &str = "400";
 /// exception. It is scoped as narrowly as the protocol allows: a single call,
 /// on a command the user has explicitly confirmed, which exists because their
 /// phone is gone. Every other request this client makes says `400`.
+///
+/// Since the token and identity are data on a [`Request`], this exception is
+/// now visible at its call site in [`DomainApi`] rather than buried in the
+/// adapter.
 pub const CLIENT_TYPE_RECOVERY: &str = "200";

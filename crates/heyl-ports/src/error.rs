@@ -92,6 +92,17 @@ pub enum ApiError {
         reason: String,
     },
 
+    /// The RPC exists in the schema but this implementation does not serve it.
+    ///
+    /// Every method of the generated `HeyloginApi` defaults to this, so a stub
+    /// implements only the RPCs it exercises and the other 122 name themselves
+    /// when called by mistake. The real client overrides all of them.
+    #[error("{method} is not implemented by this API")]
+    Unimplemented {
+        /// The gRPC method path, e.g. `/domain.SyncService/Sync`.
+        method: &'static str,
+    },
+
     /// The backend's response did not contain what the schema requires.
     ///
     /// Distinct from [`ApiError::Transport`] because it means our mapping and

@@ -29,7 +29,8 @@ use std::{fmt::Write as _, time::Duration};
 use heyl_crypto::{Seed, recovery};
 use heyl_domain::{AuthenticatorSecret, AuthenticatorType, ChallengeEncoding, RecoverySecret};
 use heyl_grpc::{GrpcClient, GrpcConfig};
-use heyl_ports::HeylApi;
+use heyl_platform::{OsRandom, SystemClock};
+use heyl_ports::{Clock as _, HeylApi, RandomSource as _, api::SessionUnlockGrant};
 
 /// Run the probe.
 pub async fn run(endpoint: &str, delay_secs: u64) -> Result<(), String> {
@@ -75,9 +76,14 @@ pub async fn run(endpoint: &str, delay_secs: u64) -> Result<(), String> {
                         authenticator_id,
                         &challenge.challenge,
                         signature.as_bytes(),
-                        // No unlock: this is a probe, and it should not leave
-                        // grants lying around on the account.
-                        None,
+                        // Send the same request shape `heyl login` does,
+                        // including the self-granted unlock. An earlier
+                        // version omitted it to avoid leaving grants on the
+                        // account, and the backend answered `invalid session
+                        // type` -- request validation, before it ever looked
+                        // at the signature. A probe that varies two things at
+                        // once measures neither.
+                        Some(unlock_grant(&seed)),
                     )
                     .await
                 {
@@ -114,6 +120,20 @@ pub async fn run(endpoint: &str, delay_secs: u64) -> Result<(), String> {
              measuring something other than the signature.",
             many.len()
         )),
+    }
+}
+
+/// The self-granted unlock that accompanies a real login (§6).
+fn unlock_grant(seed: &Seed) -> SessionUnlockGrant {
+    let random = OsRandom;
+    let session_key = random.encryption_private_key();
+    SessionUnlockGrant {
+        encrypted_secret: session_key.public_key().seal(
+            &random.encryption_private_key(),
+            &random.nonce(),
+            seed.expose_secret(),
+        ),
+        expires_at: SystemClock.next_unlock_deadline(),
     }
 }
 

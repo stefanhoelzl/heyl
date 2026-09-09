@@ -52,6 +52,16 @@ pub enum CryptoError {
         len: usize,
     },
 
+    /// A recovery code was not the canonical form heylogin specifies.
+    ///
+    /// Distinct from a wrong code on purpose: the fix is to retype it in the
+    /// documented shape, not to find a different code. Never carries the
+    /// value.
+    // The shape is described rather than illustrated: an example would put
+    // digits in an error message, and no error here may resemble a code.
+    #[error("recovery code must be six dash-separated groups of four digits")]
+    MalformedRecoveryCode,
+
     /// Argon2 rejected the parameters, or they exceeded our own bounds.
     #[error("invalid Argon2 parameters: {reason}")]
     Argon2Params {

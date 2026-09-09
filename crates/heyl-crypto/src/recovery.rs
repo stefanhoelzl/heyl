@@ -67,14 +67,44 @@ impl RecoveryParams {
     }
 }
 
+/// How many groups a recovery code has (§4).
+const GROUPS: usize = 6;
+/// How many digits are in each group.
+const GROUP_LEN: usize = 4;
+
 /// Normalise a typed recovery code.
 ///
-/// Whitespace and case are forgiven — the code is digits and dashes, so case
-/// is meaningless and stray spaces are a paste artefact. **Dashes are kept**:
-/// heylogin hashes the code with them.
+/// Surrounding whitespace only — a trailing newline off a pipe or an
+/// environment variable is a transport artefact, not part of the code.
+///
+/// Nothing else is altered. heylogin defines exactly one spelling, so a code
+/// that is not already in it is **refused** by [`is_canonical`] rather than
+/// reshaped into it. In particular dashes are never removed: heylogin hashes
+/// the code *with* them, and stripping them derives a completely different
+/// seed.
 #[must_use]
 pub fn normalize_code(code: &str) -> Zeroizing<String> {
-    Zeroizing::new(code.chars().filter(|c| !c.is_whitespace()).collect())
+    Zeroizing::new(code.trim().to_owned())
+}
+
+/// Whether `code` is the canonical form heylogin specifies: six groups of four
+/// digits, dash-separated.
+///
+/// heylogin defines exactly one spelling, so that is the only one accepted. A
+/// code entered with spaces, or with no separators, is **rejected** rather than
+/// reshaped: reshaping would accept forms the protocol does not define, and
+/// hashing one as typed would derive a wrong seed and report a perfectly good
+/// code as incorrect. Refusing says which of the two actually went wrong.
+#[must_use]
+pub fn is_canonical(code: &str) -> bool {
+    let mut groups = 0;
+    for group in code.split('-') {
+        if group.len() != GROUP_LEN || !group.chars().all(|c| c.is_ascii_digit()) {
+            return false;
+        }
+        groups += 1;
+    }
+    groups == GROUPS
 }
 
 /// Derive the 32-byte seed for a `BACKUP_CODE` authenticator.
@@ -82,14 +112,24 @@ pub fn normalize_code(code: &str) -> Zeroizing<String> {
 /// `code` is normalised with [`normalize_code`] first.
 ///
 /// # Errors
-/// [`CryptoError::Argon2Params`] if the parameters are out of bounds or
-/// Argon2 rejects them.
+/// [`CryptoError::MalformedRecoveryCode`] if `code` is not the canonical
+/// six-groups-of-four form; [`CryptoError::Argon2Params`] if the parameters
+/// are out of bounds or Argon2 rejects them.
 pub fn derive_recovery_seed(
     code: &str,
     salt: &[u8],
     params: RecoveryParams,
 ) -> Result<Zeroizing<[u8; SEED_LEN]>, CryptoError> {
     params.validate()?;
+
+    let code = normalize_code(code);
+    // Reject a mis-spelled code here rather than hashing it: Argon2id would
+    // happily return 32 perfectly good bytes, the checksum would reject them,
+    // and the user would be told their code is wrong when the problem was the
+    // way they typed it.
+    if !is_canonical(&code) {
+        return Err(CryptoError::MalformedRecoveryCode);
+    }
 
     let argon = Argon2::new(
         Algorithm::Argon2id,
@@ -105,7 +145,6 @@ pub fn derive_recovery_seed(
         })?,
     );
 
-    let code = normalize_code(code);
     let mut out = Zeroizing::new([0u8; SEED_LEN]);
     argon
         .hash_password_into(code.as_bytes(), salt, out.as_mut_slice())

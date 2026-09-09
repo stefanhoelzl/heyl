@@ -17,19 +17,39 @@ impl Clock for SystemClock {
     }
 }
 
-/// The next 02:00 strictly after `now`, in `tz`.
+/// heylogin's `unlockUtils.getUnlockTime()` (§6), replicated exactly:
 ///
-/// heylogin's `unlockUtils.getUnlockTime()` (§6). **Local**, not UTC: it is
-/// what the phone and the browser compute, and asking for a different instant
-/// than every other client would expire our grants at a time the user does not
-/// expect.
+/// ```js
+/// const date = new Date(new Date().getTime() + 86_400_000); // tomorrow
+/// date.setHours(2, 0, 0, 0);                                // at 2am
+/// ```
 ///
-/// Split out and taking its inputs explicitly so the rollover is testable
-/// without waiting for 02:00.
+/// Three details, all of which matter and none of which are what you would
+/// write from the prose description:
+///
+/// * It is **always tomorrow's** 02:00, never today's. Run at 01:00 it returns
+///   a deadline 25 hours away, not one hour away. "The next 02:00" is the
+///   natural reading and it is wrong.
+/// * The 02:00 is **local**, because `setHours` is local. Computing it in UTC
+///   would expire our grants at an hour the user does not expect, and would
+///   disagree with every other client on the account.
+/// * The offset is exactly 86,400,000 ms — an absolute day, not a calendar
+///   one. Across a DST transition those differ, and matching the other clients
+///   matters more here than being calendrically tidy.
+///
+/// Takes its inputs explicitly so the behaviour is testable without waiting
+/// for 02:00 or moving the machine's timezone.
 #[must_use]
 pub fn next_unlock_deadline_from(now: jiff::Timestamp, tz: &jiff::tz::TimeZone) -> Timestamp {
-    let local = now.to_zoned(tz.clone());
-    let today_at_two = local
+    let Some(tomorrow) = now.as_millisecond().checked_add(86_400_000) else {
+        return Timestamp::from_jiff(now);
+    };
+    let Ok(tomorrow) = jiff::Timestamp::from_millisecond(tomorrow) else {
+        return Timestamp::from_jiff(now);
+    };
+
+    let at_two = tomorrow
+        .to_zoned(tz.clone())
         .with()
         .hour(2)
         .minute(0)
@@ -37,16 +57,7 @@ pub fn next_unlock_deadline_from(now: jiff::Timestamp, tz: &jiff::tz::TimeZone) 
         .subsec_nanosecond(0)
         .build();
 
-    let deadline = match today_at_two {
-        // Before 02:00 today: today's is still ahead of us.
-        Ok(candidate) if candidate.timestamp() > now => candidate,
-        // Otherwise tomorrow's. `checked_add` on a zoned value handles the DST
-        // transitions that make "add 24 hours" wrong twice a year.
-        Ok(candidate) => candidate
-            .checked_add(jiff::Span::new().days(1))
-            .unwrap_or(candidate),
-        Err(_) => return Timestamp::from_jiff(now),
-    };
-
-    Timestamp::from_jiff(deadline.timestamp())
+    at_two.map_or(Timestamp::from_jiff(now), |z| {
+        Timestamp::from_jiff(z.timestamp())
+    })
 }

@@ -278,10 +278,10 @@ fn verdict(accepted: &[(SessionType, ChallengeEncoding)]) -> Result<(), String> 
 /// The self-granted unlock that accompanies a real login (§6).
 fn unlock_grant(seed: &Seed) -> SessionUnlockGrant {
     let random = OsRandom;
-    let session_key = random.encryption_private_key();
+    let session_key = heyl_domain::session_encryption_key(&random.seed()).expect("derives");
     SessionUnlockGrant {
         encrypted_secret: session_key.public_key().seal(
-            &random.encryption_private_key(),
+            &random.ephemeral_key(),
             &random.nonce(),
             seed.expose_secret(),
         ),

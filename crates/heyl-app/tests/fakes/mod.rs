@@ -162,6 +162,8 @@ pub struct FakeBackend {
     pub session_type: heyl_domain::SessionType,
     calls: Mutex<Vec<&'static str>>,
     token: Mutex<Option<String>>,
+    /// When set, `create_tokens` fails with this instead of answering.
+    pub refuse_with: Mutex<Option<ApiError>>,
 }
 
 impl FakeBackend {
@@ -185,6 +187,7 @@ impl FakeBackend {
             session_type: heyl_domain::SessionType::BackupCode,
             calls: Mutex::new(Vec::new()),
             token: Mutex::new(None),
+            refuse_with: Mutex::new(None),
         }
     }
 
@@ -228,6 +231,10 @@ impl HeylApi for FakeBackend {
         unlock: Option<SessionUnlockGrant>,
     ) -> Result<Tokens, ApiError> {
         self.record("create_tokens");
+
+        if let Some(refusal) = self.refuse_with.lock().expect("not poisoned").take() {
+            return Err(refusal);
+        }
 
         assert_eq!(
             session_type, self.session_type,

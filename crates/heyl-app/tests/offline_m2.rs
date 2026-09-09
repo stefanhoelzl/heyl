@@ -317,3 +317,40 @@ async fn a_token_refresh_is_acted_on_and_persisted() {
         "the refreshed token must be persisted, or the next run re-refreshes"
     );
 }
+
+/// heylogin's own diagnostics are surfaced as it worded them.
+///
+/// We do not rewrite them. Our reading of a backend error can be wrong, and a
+/// hardcoded explanation goes stale the moment heylogin changes behaviour --
+/// so the code, title and detail it sends are what the user is shown.
+#[tokio::test]
+async fn a_backend_refusal_is_surfaced_in_heylogins_own_words() {
+    let h = Harness::new(&[]);
+    *h.api.refuse_with.lock().expect("not poisoned") = Some(heyl_ports::ApiError::Backend {
+        status: 3,
+        domain_code: Some(30460),
+        message: "Invalid session type".to_owned(),
+        detail: "The session type reported by your client is invalid.".to_owned(),
+    });
+
+    let err = heyl_app::login::run(
+        &h.ports(),
+        "someone@example.com",
+        CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
+        ChallengeEncoding::Utf8,
+        heyl_domain::SessionType::BackupCode,
+    )
+    .await
+    .expect_err("refused");
+
+    let rendered = err.to_string();
+    assert!(rendered.contains("30460"), "names the code: {rendered}");
+    assert!(
+        rendered.contains("Invalid session type"),
+        "keeps heylogin's title: {rendered}"
+    );
+    assert!(
+        rendered.contains("The session type reported by your client is invalid."),
+        "keeps heylogin's detail: {rendered}"
+    );
+}

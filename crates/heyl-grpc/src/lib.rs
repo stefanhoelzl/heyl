@@ -16,7 +16,7 @@ pub mod client;
 pub mod map;
 pub mod status;
 
-pub use client::{GrpcClient, GrpcConfig, LongPollChallenge};
+pub use client::{GrpcClient, GrpcConfig, LongPollChallenge, Transportable};
 pub use status::{DomainErrorDetail, decode_details, decode_details_base64, to_api_error};
 
 /// The production endpoint.

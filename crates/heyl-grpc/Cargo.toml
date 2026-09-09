@@ -21,6 +21,7 @@ async-trait  = { workspace = true }
 base64       = { workspace = true }
 bytes        = { workspace = true }
 http         = { workspace = true }
+http-body    = { workspace = true }
 hyper-rustls = { workspace = true }
 hyper-util   = { workspace = true }
 prost        = { workspace = true }

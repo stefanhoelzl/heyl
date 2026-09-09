@@ -104,6 +104,18 @@ impl AuthenticatorKeys {
         self.id
     }
 
+    /// The public half of the profile-seed encryption key.
+    ///
+    /// What a `ProfileAuthenticatorLock` is sealed to.
+    ///
+    /// # Errors
+    /// Propagates [`heyl_crypto::CryptoError`].
+    pub fn profile_seed_encryption_public_key(
+        &self,
+    ) -> Result<heyl_crypto::EncryptionPublicKey, DomainError> {
+        Ok(self.profile_seed_encryption.public_key())
+    }
+
     /// The identity signing key.
     ///
     /// Signs a session's `encPubKey` for `SessionMetadata` (M5) — which is why
@@ -205,6 +217,16 @@ impl<T: Tier> ProfileSeed<T> {
     #[must_use]
     pub fn expose_secret(&self) -> &[u8; 32] {
         self.bytes.expose_secret()
+    }
+
+    /// A copy of this seed.
+    ///
+    /// Deliberately not `Clone`: duplicating secret material should be a
+    /// visible act at the call site, not something that happens because a
+    /// value was passed by value.
+    #[must_use]
+    pub fn duplicate(&self) -> Self {
+        Self::from_bytes(self.expose_secret())
     }
 
     /// The profile's identity signing key at this tier.

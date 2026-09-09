@@ -61,6 +61,36 @@ type HttpsClient = hyper_util::client::legacy::Client<
 >;
 type Transport = tonic_web::GrpcWebClientService<HttpsClient>;
 
+/// What `GrpcClient` needs of a transport.
+///
+/// The bounds tonic's generated clients impose, gathered into one name so the
+/// seam below reads as a seam rather than as four lines of where-clause.
+pub trait Transportable:
+    tonic::client::GrpcService<Body, ResponseBody = Self::Body, Error = Self::TransportError>
+    + Clone
+    + Send
+    + 'static
+{
+    /// Its transport-level error type.
+    type TransportError: Into<Box<dyn std::error::Error + Send + Sync>>;
+    /// The response body this transport yields.
+    type Body: http_body::Body<Data = bytes::Bytes, Error = Self::BodyError> + Send + 'static;
+    /// Its error type.
+    type BodyError: Into<Box<dyn std::error::Error + Send + Sync>> + Send;
+}
+
+impl<T, B, E> Transportable for T
+where
+    T: tonic::client::GrpcService<Body, ResponseBody = B> + Clone + Send + 'static,
+    T::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    B: http_body::Body<Data = bytes::Bytes, Error = E> + Send + 'static,
+    E: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
+{
+    type TransportError = T::Error;
+    type Body = B;
+    type BodyError = E;
+}
+
 /// What a completed phone-swipe channel hands back (§5).
 #[derive(Debug, Clone)]
 pub struct LongPollChallenge {
@@ -78,12 +108,32 @@ pub struct LongPollChallenge {
 }
 
 /// A gRPC-Web client for heylogin.
-pub struct GrpcClient {
+pub struct GrpcClient<T = Transport> {
     config: GrpcConfig,
-    transport: Transport,
+    transport: T,
     /// The bearer token, if we have one. Behind a lock because `RefreshToken`
     /// replaces it mid-flight and every later call must pick up the new value.
     token: Arc<RwLock<Option<String>>>,
+}
+
+impl<T> GrpcClient<T> {
+    /// Build a client over a transport supplied by the caller.
+    ///
+    /// The seam that lets a **recorder** wrap the real transport in `tools/`
+    /// and a **replayer** stand in for it under test, without either of them
+    /// shipping inside this crate: `heyl-grpc` offers the seam, not the
+    /// machinery (DESIGN.md §6).
+    ///
+    /// The transport sits *below* tonic-web's framing, so what a recorder sees
+    /// and a replayer supplies is the gRPC-Web wire body — the same bytes the
+    /// backend sent.
+    pub fn with_transport(config: GrpcConfig, transport: T) -> Self {
+        Self {
+            config,
+            transport,
+            token: Arc::new(RwLock::new(None)),
+        }
+    }
 }
 
 impl GrpcClient {
@@ -141,20 +191,29 @@ impl GrpcClient {
             token: Arc::new(RwLock::new(None)),
         })
     }
+}
+
+impl<T: Transportable> GrpcClient<T>
+where
+    T::Future: Send,
+{
+    fn transport(&self) -> T {
+        self.transport.clone()
+    }
 
     /// Attach the metadata every call needs.
     ///
     /// `client-type` is mandatory and enum-validated; `client-version` is not
     /// validated on unauthenticated methods, and we send our real version
     /// either way rather than claiming to be something we are not.
-    async fn request<T>(&self, message: T) -> Result<Request<T>, ApiError> {
+    async fn request<M>(&self, message: M) -> Result<Request<M>, ApiError> {
         self.request_as(message, &self.config.client_type).await
     }
 
     /// Build a request that identifies as a specific client type.
     ///
     /// Exists for exactly one caller: see [`crate::CLIENT_TYPE_RECOVERY`].
-    async fn request_as<T>(&self, message: T, client_type: &str) -> Result<Request<T>, ApiError> {
+    async fn request_as<M>(&self, message: M, client_type: &str) -> Result<Request<M>, ApiError> {
         let mut request = Request::new(message);
         let meta = request.metadata_mut();
 
@@ -260,10 +319,6 @@ impl GrpcClient {
             registration: secret.registration,
         })
     }
-
-    fn transport(&self) -> Transport {
-        self.transport.clone()
-    }
 }
 
 /// How many times an idempotent read is retried after a transport fault.
@@ -313,7 +368,11 @@ macro_rules! client_for {
 }
 
 #[async_trait::async_trait]
-impl HeylApi for GrpcClient {
+impl<T> HeylApi for GrpcClient<T>
+where
+    T: Transportable + Sync,
+    T::Future: Send,
+{
     async fn set_access_token(&self, token: Option<&str>) {
         *self.token.write().await = token.map(str::to_owned);
     }

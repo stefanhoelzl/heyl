@@ -255,11 +255,20 @@ Server-stored per authenticator (`Authenticator`): the derived public keys, a `s
 > authenticator and all its locks**", and "the server side only allows for replacing the primary
 > authenticator with a new one. Other operations are denied."
 >
-> *Observed*: confirmed the hard way. An account with a `PUSH` and a `BACKUP_CODE` authenticator
-> had the `PUSH` one deleted by successful `CreateTokens` calls against the `BACKUP_CODE`
-> authenticator. Recovery is by re-pairing the phone, which then "regenerates all profiles …
-> replacing all Profile-Authenticator-Locks and all Vault-Profile-Locks", invalidating every key
-> recorded beforehand.
+> *Observed*, under control. A phone was paired, then a single recovery run against the
+> `BACKUP_CODE` authenticator:
+>
+> ```text
+> before   CreateChallenge lists  Push a…85  +  BackupCode a…54
+> run      disconnected Push a…85
+> after    CreateChallenge lists  BackupCode a…54          (one authenticator)
+> ```
+>
+> The session that recovery produced was fully usable — every derivation link and every vault
+> opened through it — so the restriction the whitepaper describes ("only allows for replacing the
+> primary authenticator") did not extend to reads. Recovery from here is by re-pairing the phone,
+> which then "regenerates all profiles … replacing all Profile-Authenticator-Locks and all
+> Vault-Profile-Locks", invalidating every key recorded beforehand.
 >
 > A client must therefore **not** treat this as a routine sign-in path.
 

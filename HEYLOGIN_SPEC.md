@@ -267,8 +267,18 @@ Server-stored per authenticator (`Authenticator`): the derived public keys, a `s
 > The session that recovery produced was fully usable — every derivation link and every vault
 > opened through it — so the restriction the whitepaper describes ("only allows for replacing the
 > primary authenticator") did not extend to reads. Recovery from here is by re-pairing the phone,
-> which then "regenerates all profiles … replacing all Profile-Authenticator-Locks and all
-> Vault-Profile-Locks", invalidating every key recorded beforehand.
+> which the whitepaper says "regenerates all profiles … replacing all Profile-Authenticator-Locks and
+> all Vault-Profile-Locks", invalidating every key recorded beforehand.
+>
+> ⚠ **The client code does not support that last sentence.** Enrolling an authenticator regenerates
+> nothing: `onlineInternalModifyAuthenticators` calls `regenerateProfiles` only when
+> `deleteAuthenticatorIds` is non-empty, and the phone's own recovery path
+> (`onlineRecoverWithNewAuthenticator`) deletes nothing — the server already removed the push
+> authenticator. Vault regeneration is driven separately, by the backend flagging a vault `dirty` at
+> sync (§7). *Observed*: in the recorded session taken straight after a real recovery, all ten vaults
+> came back `dirty: false` (`tests/fixtures/api/base/03-sync.json`), so the recovery itself flags
+> nothing. Whether re-pairing later dirties anything is **unverified** — but no mechanism for it is
+> visible in the clients.
 >
 > A client must therefore **not** treat this as a routine sign-in path.
 
@@ -369,6 +379,87 @@ service is backend-side and not present in the client bundles.
   enumerable via `AuthenticatorService.List`. So internal/hidden types (`DUMMY`, `SESSION_UNLOCK`,
   `ORGANIZATION_SERVICE`) may not appear in a normal device list, but are visible at the protocol level.
 
+### Enrolment — how an authenticator is created
+
+> **An authenticator is created by whoever holds its seed.** There is no protocol by which one client
+> enrols a *remote* device: every published field is derived from the seed
+> (`authenticator/unsynced.ts`), so the party that performs the write knows the new seed. A client
+> that wants to add a phone cannot; the phone adds itself. This is the single most consequential fact
+> in this section — see §5's note on which way the pairing QR points.
+
+`UnsyncedAuthenticator.createWithSalt(type, secretInfo, { seed }, secretSalt)`, with
+`secretSalt = randomSeed()` (32 bytes) and `secretInfo = ''` for `PUSH`, derives:
+
+| field | derivation |
+|---|---|
+| `highSecurityLoginSigPubKey` | `deriveSigningKeyPair(seed, **null**, 'salt-authenticator-login-signing-key-')` |
+| `storableSigPubKey` | `deriveSigningKeyPair(seed, secretSalt, 'salt-authenticator-signing-key-')` |
+| `storableProfileSeedEncPubKey` | `deriveEncryptionKeyPair(seed, secretSalt, 'salt-authenticator-encryption-key-')` |
+| `highSecurityIdentitySigPubKey` | `deriveSigningKeyPair(seed, secretSalt, 'salt-authenticator-signing-key-')` |
+| `highSecurityProfileSeedEncPubKey` | `deriveEncryptionKeyPair(seed, secretSalt, 'salt-authenticator-encryption-key-')` |
+
+The high-security and storable constants hold the same fixedInfo values (§2), so the two tiers coincide
+at this layer; the DTO carries both names for one key pair each. Three signatures accompany them, all
+made with `highSecurityIdentitySigPrivKey`:
+`highSecurityProfileSeedEncPubKeySignature`, `storableProfileSeedEncPubKeySignature` (both
+`salt-sig-encryption-` + the `-signature-` fixedInfo) and `storableSigPubKeySignature`
+(`salt-sig-signing-` + …).
+
+`serializeAuthenticator` sends `id = nullUuid` for a creation; the server assigns the real id and
+returns it in `ModifyAuthenticatorsResponse.authenticator_ids`.
+
+**Per-profile locks.** `serializeForCreation` builds one `ProfileAuthenticatorLock` per profile — for
+every profile in the repo **and every disabled profile** — as
+`{ encryptedHighSecurityProfileSeed: asymEncrypt(newAuth.highSecurityProfileSeedEncPubKey, hsSeed),
+encryptedStorableProfileSeed: asymEncrypt(newAuth.storableProfileSeedEncPubKey, storableSeed) }`,
+with `authenticatorId = nullUuid`. Producing them requires the writer to unlock every profile, so
+enrolment is a **high-security** operation: it needs the seed, not merely a session.
+
+**The block.** `AuthenticatorBlock.create(privKey, keys, parent)` (`client-core/src/authenticatorBlock.ts`):
+
+```text
+content    = { parent: base64(parentHash ?? hashData(utf8('INITIAL_AUTHENTICATOR_BLOCK'))),
+               keys:   [base64(serializedSigPubKey), …].sort() }        # JS default string sort
+blob       = utf8(JCS(content))                       # RFC 8785, `json-canonicalize`
+hash       = hashData(blob)                           # SHA512(blob)[:32]
+signature  = sign(highSecurityIdentitySigPrivKey, hash, 'salt-sig-hash-')
+```
+
+`keys` is **every** authenticator's `highSecurityIdentitySigPubKey` after the change (survivors plus
+new), `parent` is the account's current `authenticator_block_hash`, and the signature is made by an
+authenticator present in the *previous* block — which is what `verify()` checks on the reading side.
+`salt-sig-hash-` carries no fixedInfo suffix; it is the whole context.
+
+**The write.** `AuthenticatorService.Modify(create_authenticator_ops = [{ data, profileLocks, webauthn? }],
+delete_authenticator_ids, authenticator_block = blob, authenticator_block_signature = signature,
+profiles = regeneratedProfiles)`, wrapped by `performWithSyncSuperUsersAndAllProfiles` — a sync with
+`syncSuperUsers = true` and all profiles enabled, before and after.
+
+**Deleting is what regenerates.** `onlineInternalModifyAuthenticators` calls `regenerateProfiles` only
+when `deleteAuthenticatorIds` is non-empty; a pure addition sends `profiles = []` and leaves every
+profile seed, `ProfileAuthenticatorLock` and `VaultProfileLock` untouched. The "re-pairing regenerates
+everything" behaviour of §7 therefore belongs to *removal*, not to enrolment. A client may not delete
+the authenticator it is currently using (`RemoveLocalAuthenticatorError`).
+
+### Recovery, and the replacement it exists for
+
+`ClientCore.onlineRecoverWithNewAuthenticator(params, backend, unsyncedAuth, hsc, platform, extra = [])`
+is the whole of what the whitepaper means by "the server side only allows for replacing the primary
+authenticator":
+
+1. recovery-code login (`LoginFlowRecovery`, `SessionType.BACKUP_CODE`) — §5;
+2. `Sync`;
+3. `onlineAddAuthenticators([newAuth, …extra])` — the **caller** generates the new seed with
+   `randomSeed()`; the enrolment above runs with no deletions, so nothing is regenerated;
+4. `onlineLogoutSession(currentSessionId)` — the recovery session is **discarded immediately**;
+5. `CreateChallenge(userId)` then `finishChallengeSelfUnlocking` as the *new* authenticator, with
+   `SESSION_TYPE_SELF_UNLOCKING_PRIMARY` and **no** `session_unlock`.
+
+`onlineAddAuthenticators` has exactly one caller in the shipped code, and it is this. The web app has
+**no recovery UI at all** — the only place it appears is the debug harness `VirtualPushAuthenticator`,
+which mirrors the phone: recover, mint a fresh `PUSH` seed, enrol it, continue as that authenticator.
+So the product's recovery is a **phone** flow, and the phone recovers *itself*.
+
 ---
 
 ## 5. Login — obtaining the seed and a session
@@ -453,11 +544,52 @@ device should be paired, and it ignores a QR URL invoked through its own URL han
 scan (*whitepaper §5.7*). heylogin is explicit that this leaves QR pairing exposed to phishing and
 Browser-in-the-Middle relaying, and points organisations with elevated requirements at FIDO2 instead.
 
+**Which way the QR points.** The QR carries the *scanning client's* public key, and the reply carries
+the **phone's existing seed** to that client. It creates a **session for the scanner**; it never
+creates an authenticator, and there is no message in either direction that would enrol the phone (§4).
+On the phone side the whole of it is
+`onlineLongPollChannelSendSecret(pubKeyB64, ownSeed, registration)` →
+`CompleteLongPollChannel(publicKeyHash = base64(hashData(serializedPubKey)), authenticatorId, authReply)`.
+
+`AuthenticatorReply.encryptedSecretReply` carries a second field, `registration`, and it means only
+"this seed comes from a device registering the account, not from a login": the receiving client sets
+`createUnlock = !registration`, so a registration flow skips the self-granted session unlock
+(`longPollManager.ts`). It does not signal enrolment of any kind.
+
+**The QR URI grammar** (`client-core/src/util/qrUris.ts`) has two forms, distinguished by path:
+
+| form | URI | hash payload |
+|---|---|---|
+| `pair` | `<origin>/qr/` — note the **trailing slash**, kept "for historical reasons" | `base64url(longPollPubKey)` |
+| `join` | `<origin>/qr/join/<profileId>` | `base64url(profileHighSecuritySeed)` |
+
+`parseQrUri` distinguishes them by exactly that trailing empty segment, so a `pair` URI without it does
+not parse. `origin` is whatever client renders the code (`window.location.origin` in the web app).
+
 A variant (`login/flow/pushAuthenticator.ts`) adds a hash-commitment + SAS (`symKeyToSas`) for mutual
 key confirmation over the channel. *Compliance whitepaper §4.4* gives it a purpose rather than
 treating it as an enrichment: it is the path **"for devices without a camera"** — which is what any
 headless or terminal client is. A client that cannot scan should expect to implement the SAS variant,
 not the QR one.
+
+It runs over the **generic `ChannelService`**, not the long-poll RPC: `Create(userId, data, type,
+exposed)` opens a channel whose body is a typed `channel_messages` protobuf, and `Claim` / `Read` /
+`Write` move messages between the two `ChannelRecipient`s, `CLIENT` and `AUTHENTICATOR`
+(`backend-client-web/src/channels.ts`). For a login channel:
+
+1. client → `Create(userId, LoginHashCommitmentBody{ hashCommitment }, 'login', exposed = true)`,
+   the commitment being `hashData` of its own shared-secret public key;
+2. authenticator → `Claim(channelId, authenticatorId, LoginAuthenticatorPubKeyBody{ … })`, which
+   returns the commitment;
+3. client → `Write(AUTHENTICATOR, LoginClientPubKeyBody{ clientPubKey })`, opening the commitment;
+   the authenticator verifies it against the hash it already holds (`InvalidHashCommitmentError`);
+4. both sides `combineSharedSecret(priv, pub, 'push-login')` and display `symKeyToSas(sharedSecret)`
+   for the human to compare;
+5. authenticator → `Write(CLIENT, LoginEncryptedSecretBody{ encryptedSecret = symEncrypt(shared, seed),
+   authenticatorId })`; `Delete(channelId)` closes it.
+
+The seed still arrives from the phone, so the SAS variant changes how the channel is authenticated,
+not what it transports.
 
 ### Recovery code
 `seed = Argon2id(code, params)` (§4) using the `BACKUP_CODE` authenticator's params from `CreateChallenge`,
@@ -504,6 +636,21 @@ flowchart LR
 - On a swipe, the granting party stores `encryptedSecret = asymEncrypt(sessionEncPubKey, seed)` on the
   backend with an `expiresAt`. A session reconstructs the seed by decrypting it with its session private
   key (`HighSecurityCache.fromSessionUnlock`).
+- **A session must publish a *signed* encryption key before anyone will unlock it.** `SessionKeys`
+  signs the session `encPubKey` with the authenticator's `highSecurityIdentitySigPrivKey` under
+  `salt-sig-encryption-` + `salt-session-encryption-key-signature-`, and publishes key and signature
+  as `SessionMetadata` in the META vault (§7). Before granting, the phone runs
+  `checkEncPubKeySignature(accountState.authenticators.map(a => a.storableSigPubKey), encPubKey,
+  signature, …)` and refuses with `NoMatchingSigningKeyFoundError` if none matches — note it verifies
+  against `storableSigPubKey` a signature made with the *identity* key, which works only because the
+  two fixedInfo constants coincide (§2), and is independent evidence that they do.
+  **Consequence for a third-party client**: a session that never writes `SessionMetadata` can only
+  ever self-grant its unlock at `CreateTokens` time. No phone can unlock it later, because there is
+  nothing for the phone to verify or encrypt to.
+- A login self-grant is not a third-party liberty: `finishChallenge` sends
+  `sessionUnlock = { encryptedSecret: asymEncrypt(ownSessionEncPubKey, seed), expiresAt:
+  getUnlockTime(), singleUse: false }` on every seed-bearing login, and omits it only when the reply
+  carried `registration = true` (§5).
 - Expiry, three independent limits:
   1. `unlockUtils.getUnlockTime()`, the value the *client requests*, is
      ```js
@@ -612,8 +759,12 @@ also chain to each other via `ProfileProfileLock` (a profile unlocked from an up
   who had access should no longer have it. On the next commit the client squashes every commit into
   a single new one under a fresh `vaultKeyₛ`/`vaultKey_hs`, starts a new **generation**, writes new
   `VaultProfileLock`s and discards the old commits and locks. Profiles regenerate the same way
-  (new profile seeds, all locks replaced) — notably after any account recovery, which invalidates
-  every key previously observed for that account.
+  (new profile seeds, all locks replaced). The client acts on `dirty` during sync
+  (`onlineInternalSync`: dirty private and personal vaults are always regenerated, and a dirty vault
+  refuses queued vault messages), and regenerates *profiles* only when a client deletes an
+  authenticator (§4). The whitepaper's "recovery invalidates every previously observed key" is a
+  statement about the server flagging state, and it did not hold for the recovery we recorded — see
+  the warning in §4.
 - `serialize.ts`: the first byte selects the format — `0x01` = Snappy-compressed (raw block, SnappyJS),
   `0x5B '['` = uncompressed JSON (automerge), `0x7B '{'` = uncompressed JSON (heymerge). Payload is
   `JSON.stringify(content)`.
@@ -663,3 +814,12 @@ paths cited throughout are relative to these packages:
   `client-core/src/login/longPollManager.ts`), recovery-seed derivation
   (`src/util/recovery/calculateRecoverySeed.ts`), QR/pairing (`client-core/src/util/qrUris.ts`,
   `src/containers/pair/*`), and WebAuthn login (`client-core/src/login/flow/webauthn.ts`).
+
+  The enrolment material in §4, §5 and §6 was read from build **`2026-09-07-6b202e9ca`**, whose entry
+  chunk carries only a fraction of the sources: `client-core`'s authenticator, lock and login code
+  lives in the lazily-loaded chunks (`App-*`, `LoggedIn-*`, `manager-*`, `qrUris-*`,
+  `UserPairContainer-*`, `VirtualPushAuthenticator-*`, …), each with its own `.js.map`. Mine every
+  chunk the entry references, not just `index-*.js.map`. `src/containers/VirtualPushAuthenticator.tsx`
+  is the most valuable single file in the bundle: a full software implementation of the *phone* side —
+  registration, recovery-and-replace, QR pairing, session unlock and login approval — shipped in
+  production behind a debug route.

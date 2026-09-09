@@ -173,8 +173,8 @@ merge is ever executed**. Rails:
 
 ### Memory hygiene
 
-Secret material lives in newtypes that wrap `Zeroizing` bytes **and hold an `mlock` guard**, so a
-seed or a `protectedSecret` is never written to swap. Those newtypes implement no `Deref`, no
+Secret material lives in newtypes that wrap `Zeroizing` bytes **and are `mlock`ed for the life of
+the process**, so a seed or a `protectedSecret` is never written to swap. Those newtypes implement no `Deref`, no
 `AsRef<[u8]>`, no `Serialize`, and a hand-written `Debug` that redacts — the bytes are reachable
 only through an explicit `expose_secret()`, which makes every access site greppable in one query.
 
@@ -190,6 +190,18 @@ stderr is not read by anyone in a tool built for scripts. `heyl` refuses to star
 `RLIMIT_MEMLOCK`. The failure is rare enough for that to be reasonable — locking is page-granular,
 a handful of secrets is a handful of pages, and systemd has defaulted the limit to 8 MiB for
 years.
+
+**The lock is taken and never released, and that is what makes the claim true.** `mlock` is
+page-granular: a 32-byte key shares its page with other secrets, so releasing a lock when one
+secret drops unlocked the page under every other secret still live on it. That defect shipped from
+M1 until the cross-platform CI matrix ran the suite on Windows, where `VirtualUnlock` keeps no lock
+count and fails loudly the second time; on Linux and macOS it had been silent, and a test using
+`/proc/self/smaps` now confirms the page really was left unlocked. The guard is therefore leaked
+deliberately. Locking for longer than strictly necessary is the safe direction for a property that
+means "never swapped while live", and the cost is bounded by measurement rather than hope: 5000
+secrets created and dropped in sequence touch **one** page, and dozens held at once touch **three**
+— against ~2048 pages of an 8 MiB `RLIMIT_MEMLOCK`, and Windows' ceiling of its minimum working
+set (~50 pages) less overhead.
 
 Secret values are written to the output sink and dropped; they are never logged, never included
 in error messages, and never passed as command-line arguments to child processes.
@@ -411,7 +423,16 @@ whether it is linked — so it would require libsodium on every build machine an
 musl story. `region` 4.0 replaces it: `region::lock()` is a **safe** `fn` returning an RAII
 `LockGuard`, so `heyl-crypto` gets `mlock` while keeping `unsafe_code = "forbid"`, and its
 dependencies (`libc`, `mach2`, `windows-sys`, `bitflags`) are FFI declarations with no C library
-behind them. What `region` does not give is `MADV_DONTDUMP`; core-dump suppression is a process
+behind them.
+
+**What did not transfer with that swap, and cost us a defect.** `secrets` wraps libsodium's
+`sodium_malloc`, which *allocates* each secret its own guarded pages — page ownership comes free
+and unlocking is exact. `region` only *locks* pages someone else allocated; owning them is the
+caller's job, and `region::unlock`'s own documentation says so ("unlocking one mapping may unlock
+another mapping that shares the same page"). `SecretBytes` locked 32-byte heap allocations and
+released them on drop, which unlocked pages under live secrets. The rejection of `secrets` was
+right and is more right now — its `build.rs` would fail §6's `libsodium-sys` ban outright — but the
+half it did for free had to be replaced rather than assumed. §3 records the fix: never unlock. What `region` does not give is `MADV_DONTDUMP`; core-dump suppression is a process
 concern and lives in `heyl-cli` as `RLIMIT_CORE = 0`.
 
 **Verified at M0, re-verified at M1 for the chosen stack.** The crates above compile together, and
@@ -856,6 +877,7 @@ the core, which is the intent behind the port boundary.
 |---|---|---|
 | ~~Backend rejects an unofficial client~~ | **Closed** | Probed at M0: `client-type: 400` is accepted and `client-version` is not validated. Not a risk. |
 | `tonic` / `tonic-web` API churn | Low | `tonic` is mature and widely deployed. `connectrpc` was built at full parity during M0 and works, so a switch back is a known quantity rather than a hope. |
+| ~~`mlock` released on drop, unlocking pages under live secrets~~ | **Closed** | Present from M1 and invisible: `mlock` is page-granular, so dropping one 32-byte secret unlocked the page others were still using. Found by the cross-platform CI matrix (§6) — Windows' `VirtualUnlock` keeps no lock count and panicked; Linux and macOS had accepted it silently. Fixed by never releasing the lock (§3), with a `/proc/self/smaps` test that fails against the old behaviour. The general lesson is in §4: `region` locks pages, it does not own them. |
 | ~~Static musl artifacts need a C cross-toolchain~~ | **Closed** | Found at M0 (`ring`/`aws-lc-sys` are C), retired at M2 by taking rustls' `CryptoProvider` from `rustls-graviola` instead. No `cc` or `cmake` on any shipped target, so `rustup target add` is enough. The new exposure is graviola itself — see §4. |
 | graviola is a young TLS provider, and excludes pre-~2014 x86 and Raspberry Pi 4 and earlier | Medium | Adopted at M2 to keep §4's pure-Rust claim true of the whole binary. Written by rustls' author over formally-verified s2n-bignum assembly, and it secures only the transport — the vault crypto is `heyl-crypto`. Revisit if a user reports an unsupported CPU, or if `ring` ever ships a pure-Rust build. |
 | gRPC-Web streaming (`StreamingSync`, `LongPollSync`) from a native client is untested | Medium | **M0 did not retire this.** It is M4's exposure; retire it early in M4 rather than at the end. |

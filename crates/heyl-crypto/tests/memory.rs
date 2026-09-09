@@ -59,21 +59,94 @@ fn a_secret_works_whether_or_not_locking_succeeded() {
     assert_eq!(opened.as_slice(), b"payload");
 }
 
-/// Locks are released on drop, so a long-running process cannot exhaust
+/// Locks are never released, so a long-running process must not exhaust
 /// `RLIMIT_MEMLOCK` by deriving many keys.
+///
+/// This replaces an earlier test that asserted the opposite — that locks are
+/// released on drop — which is the behaviour that turned out to unlock pages
+/// under still-live secrets. The property it was protecting is still worth
+/// protecting; it just holds for a different reason now. `mlock` is
+/// page-granular and 32-byte allocations cluster in one size class, so
+/// churning secrets re-locks a page that is already locked rather than
+/// consuming a new one.
 #[test]
-fn locks_are_released_when_secrets_are_dropped() {
+fn many_secrets_lock_few_pages() {
     let Some(limit) = memlock_limit() else { return };
     if limit < 64 * 1024 {
         return;
     }
-    // Far more locks than the limit could hold simultaneously if they leaked:
-    // a page each against an 8 MiB limit is ~2048.
+    // If every iteration consumed a fresh page this would need ~5000 of them,
+    // well past the ~2048 an 8 MiB limit affords.
     for i in 0..5000u32 {
         let seed = Seed::from_bytes(&[u8::try_from(i % 256).expect("in range"); 32]);
         assert!(
             seed.is_locked(),
-            "lock failed on iteration {i}; guards are leaking"
+            "lock failed on iteration {i}; the locked set is growing per secret"
         );
     }
+}
+
+/// Whether the page holding `addr` is locked, per `/proc/self/smaps`.
+///
+/// `mlock` splits the enclosing VMA, so the mapping containing a locked page
+/// reports a non-zero `Locked:` and carries `lo` in `VmFlags`.
+#[cfg(target_os = "linux")]
+fn page_is_locked(addr: usize) -> Option<bool> {
+    let smaps = std::fs::read_to_string("/proc/self/smaps").ok()?;
+    let mut current: Option<bool> = None;
+    for line in smaps.lines() {
+        if let Some((range, _)) = line.split_once(' ')
+            && let Some((lo, hi)) = range.split_once('-')
+            && let (Ok(lo), Ok(hi)) = (usize::from_str_radix(lo, 16), usize::from_str_radix(hi, 16))
+        {
+            current = Some(addr >= lo && addr < hi);
+            continue;
+        }
+        if current == Some(true)
+            && let Some(rest) = line.strip_prefix("Locked:")
+        {
+            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some(kb > 0);
+        }
+    }
+    None
+}
+
+/// The regression this file exists for: dropping one secret must not unlock
+/// the page a different, still-live secret is sitting on.
+///
+/// `mlock` is page-granular, so a handful of 32-byte secrets share one page.
+/// Releasing a lock on drop unlocked that page for all of them — silently
+/// here, and on Windows as an `ERROR_NOT_LOCKED` panic out of
+/// `region::LockGuard::drop`. Nothing in the suite caught it until the
+/// cross-platform matrix ran the tests on Windows.
+#[cfg(target_os = "linux")]
+#[test]
+fn dropping_a_secret_leaves_its_neighbours_locked() {
+    let Some(limit) = memlock_limit() else { return };
+    if limit < 64 * 1024 {
+        return;
+    }
+
+    // Enough to be confident two of them share a page: ~56 fit in 4 KiB.
+    let mut secrets: Vec<Seed> = (0u8..64).map(|i| Seed::from_bytes(&[i; 32])).collect();
+    let Some(survivor) = secrets.last() else {
+        unreachable!("just built 64")
+    };
+    let watched = survivor.expose_secret().as_ptr() as usize;
+    let Some(true) = page_is_locked(watched) else {
+        eprintln!("skipped: smaps does not report the page as locked to begin with");
+        return;
+    };
+
+    // Drop every other secret, including any sharing the watched page.
+    secrets.truncate(1);
+    secrets.shrink_to_fit();
+
+    assert_eq!(
+        page_is_locked(watched),
+        Some(true),
+        "dropping neighbouring secrets unlocked the page under a live one"
+    );
+    assert!(secrets[0].is_locked(), "the survivor still reports locked");
 }

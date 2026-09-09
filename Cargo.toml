@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition      = "2024"
+rust-version = "1.91"
+license      = "Apache-2.0"
+repository   = "https://github.com/stefanhoelzl/heyl"
+authors      = ["Stefan Hoelzl <st.hoelzl@googlemail.com>"]
+
+# Declared once here; every crate opts in with `[lints] workspace = true`, so a
+# crate that omits it is visible in its own manifest rather than invisible in a
+# missing attribute.
+[workspace.lints.rust]
+unsafe_code   = "forbid"
+missing_docs  = "deny"
+
+[workspace.lints.clippy]
+all           = { level = "deny", priority = -1 }
+pedantic      = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+
+[workspace.dependencies]
+# --- §2 primitives. RustCrypto over dryoc; see DESIGN.md §4.
+crypto_secretbox = "0.1"
+crypto_box       = "0.9"
+ed25519-dalek    = "3.0"
+x25519-dalek     = "3.0"
+sha2             = "0.11"
+hmac             = "0.13"
+argon2           = "0.6"
+aes-gcm          = "0.11"
+# --- memory hygiene. `region::lock` is a safe fn, so heyl-crypto keeps
+#     `unsafe_code = "forbid"`. `secrets` was rejected: it links system
+#     libsodium unconditionally.
+zeroize          = "1.9"
+region           = "4.0"
+# --- domain
+uuid             = { version = "1", features = ["serde"] }
+jiff             = "0.2"
+serde            = { version = "1", features = ["derive"] }
+thiserror        = "2"
+# --- test only
+insta            = "1"
+proptest         = "1"
+hex              = "0.4"
+serde_json       = "1"
+
+heyl-crypto = { version = "0.0.0", path = "crates/heyl-crypto" }
+heyl-domain = { version = "0.0.0", path = "crates/heyl-domain" }
+
+[profile.release]
+lto       = true
+strip     = true
+panic     = "abort"
+codegen-units = 1

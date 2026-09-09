@@ -1,0 +1,5 @@
+---
+source: crates/heyl-domain/tests/hierarchy_snapshots.rs
+expression: "hex::encode(key.public_key().as_bytes())"
+---
+9a0bf160dcadfa3f9785fb5d7b676e65b961331c14a8ecdc02aa6e82e46ea054

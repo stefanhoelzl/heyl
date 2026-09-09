@@ -1,0 +1,48 @@
+# cargo-deny: the bans here turn properties DESIGN.md states into invariants
+# the build enforces, rather than observations someone re-checks by hand.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+allow = ["Apache-2.0", "MIT", "BSD-3-Clause", "BSD-2-Clause", "ISC", "Unicode-3.0", "Zlib"]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+# DESIGN.md §4: the whole dependency graph is pure Rust -- no C toolchain, no
+# system library. M0 measured this; here it is enforced, so a dependency bump
+# that quietly introduces a C build fails CI instead of breaking the static
+# musl artifacts at M7.
+#
+# `libc` is deliberately NOT banned: it is an FFI *declaration* crate with no C
+# source and no build script needing a compiler. Same for `windows-sys` and
+# `mach2`, which `region` uses to declare mlock/mprotect.
+deny = [
+    { crate = "cc",            reason = "invokes a C compiler; DESIGN.md §4 requires a pure-Rust graph" },
+    { crate = "cmake",         reason = "invokes cmake; DESIGN.md §4 requires a pure-Rust graph" },
+    { crate = "libsodium-sys", reason = "links system libsodium; this is why `secrets` was rejected -- see DESIGN.md §4" },
+    { crate = "openssl-sys",   reason = "links system OpenSSL; TLS roots come from rustls-platform-verifier" },
+    { crate = "pkg-config",    reason = "present only to locate a C library at build time" },
+    { crate = "vcpkg",         reason = "present only to locate a C library at build time" },
+]
+
+# `curve25519-dalek` appears twice today: 4.1.3 via crypto_box and 5.0.0 via
+# ed25519-dalek. That is bloat, not a correctness problem -- no curve type
+# crosses between NaCl box and Ed25519 -- and it resolves when crypto_box 0.10
+# lands on curve 5. Skipped rather than silently tolerated, so the day it can
+# be removed is visible.
+skip = [
+    { crate = "curve25519-dalek@4.1.3", reason = "via crypto_box 0.9; resolves with crypto_box 0.10" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

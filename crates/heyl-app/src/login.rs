@@ -21,6 +21,7 @@
 use heyl_crypto::{Seed, recovery};
 use heyl_domain::{
     Authenticator, AuthenticatorSecret, AuthenticatorType, ChallengeEncoding, RecoverySecret,
+    SessionType,
 };
 use heyl_ports::{SecretKey, StoredSecret, api::SessionUnlockGrant};
 use zeroize::Zeroizing;
@@ -64,6 +65,7 @@ pub async fn run(
     email: &str,
     code: CodeSource<'_>,
     encoding: ChallengeEncoding,
+    session_type: SessionType,
 ) -> Result<LoginOutcome, AppError> {
     let challenge = ports.api.create_challenge(email).await?;
 
@@ -106,6 +108,7 @@ pub async fn run(
             authenticator.id,
             &challenge.challenge,
             signature.as_bytes(),
+            session_type,
             Some(grant),
         )
         .await

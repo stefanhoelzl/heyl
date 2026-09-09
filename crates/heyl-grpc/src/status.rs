@@ -29,10 +29,14 @@ mod code {
 /// The parts of `DomainError` we act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainErrorDetail {
-    /// heylogin's own error code.
+    /// heylogin's own error code, from `error_codes.proto`.
     pub code: i32,
     /// The user-facing title. Never contains secret material.
     pub user_title: String,
+    /// heylogin's longer explanation. Often says considerably more than the
+    /// title — the 30100 detail names the missing proof of identity outright —
+    /// so it is worth carrying for diagnostics.
+    pub user_detail: String,
 }
 
 /// Pull a `DomainError` out of the raw `google.rpc.Status` protobuf.
@@ -51,6 +55,7 @@ pub fn decode_details(bytes: &[u8]) -> Option<DomainErrorDetail> {
             .map(|e| DomainErrorDetail {
                 code: e.code,
                 user_title: e.user_title,
+                user_detail: e.user_detail,
             })
     })
 }
@@ -110,6 +115,7 @@ pub fn to_api_error(status: &tonic::Status) -> ApiError {
             status: status.into(),
             domain_code,
             message,
+            detail: detail.map(|d| d.user_detail).unwrap_or_default(),
         },
     }
 }

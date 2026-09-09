@@ -109,6 +109,7 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
                 &email,
                 wiring::code_source(),
                 heyl_domain::ChallengeEncoding::Utf8,
+                heyl_domain::SessionType::BackupCode,
             )
             .await?;
             output::login(&outcome);

@@ -86,6 +86,7 @@ async fn login_signs_the_challenge_and_stores_exactly_two_items() {
         "someone@example.com",
         CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
         ChallengeEncoding::Utf8,
+        heyl_domain::SessionType::BackupCode,
     )
     .await
     .expect("login succeeds");
@@ -120,6 +121,7 @@ async fn the_recovery_code_can_come_from_the_terminal() {
         "someone@example.com",
         CodeSource::Ask("recovery code: "),
         ChallengeEncoding::Utf8,
+        heyl_domain::SessionType::BackupCode,
     )
     .await
     .expect("login succeeds");
@@ -136,6 +138,7 @@ async fn a_mistyped_code_is_rejected_before_create_tokens() {
         "someone@example.com",
         CodeSource::Given(Zeroizing::new("1111-2222-3333-4444-5555-9999".to_owned())),
         ChallengeEncoding::Utf8,
+        heyl_domain::SessionType::BackupCode,
     )
     .await
     .expect_err("rejected");
@@ -163,6 +166,7 @@ async fn signing_the_wrong_bytes_is_rejected() {
         // The fake expects Utf8. Base64 decodes the same challenge into
         // entirely different bytes, and signs those.
         ChallengeEncoding::Base64,
+        heyl_domain::SessionType::BackupCode,
     )
     .await
     .expect_err("rejected");
@@ -204,6 +208,7 @@ async fn an_undecodable_challenge_rules_a_candidate_out_before_the_network() {
         "someone@example.com",
         CodeSource::Given(Zeroizing::new(TEST_CODE.to_owned())),
         ChallengeEncoding::Base64,
+        heyl_domain::SessionType::BackupCode,
     )
     .await
     .expect_err("ruled out");

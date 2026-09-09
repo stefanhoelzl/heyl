@@ -9,8 +9,8 @@
 //! Six methods carry M2. The set grows to roughly twelve by M5.
 
 use heyl_domain::{
-    Authenticator, AuthenticatorId, Challenge, SyncSnapshot, Timestamp, Tokens, VaultCommits,
-    VaultId,
+    Authenticator, AuthenticatorId, Challenge, SessionType, SyncSnapshot, Timestamp, Tokens,
+    VaultCommits, VaultId,
 };
 
 use crate::error::ApiError;
@@ -59,6 +59,7 @@ pub trait HeylApi: Send + Sync {
         authenticator_id: AuthenticatorId,
         challenge: &str,
         response: &[u8],
+        session_type: SessionType,
         unlock: Option<SessionUnlockGrant>,
     ) -> Result<Tokens, ApiError>;
 

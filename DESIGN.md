@@ -615,6 +615,13 @@ real work rather than delegation. Sequence M9 before M11 and treat that as its k
 
 ### Distribution channels
 
+**Intel Macs are not supported.** Apple stopped selling them, `macos-26-intel` is the last runner
+image GitHub will publish, and the fleet behind it is already unreliable enough to be useless as a
+gate: the job that settled this spent 24 minutes in a release build its `aarch64` counterpart
+finishes in one, on a graph that had passed the same tests 50 seconds earlier. Supporting a target
+means being able to build and test it on every change, and that is no longer true here. macOS is
+`aarch64` only, in §6's matrix and in `deny.toml`'s `[graph] targets` alike.
+
 | Channel | Artifact | Compiles on user's machine? |
 |---|---|---|
 | GitHub Releases | static binary per target + curl installer (musl needs a C cross-toolchain — see §4) | no |
@@ -785,13 +792,13 @@ green or red for reasons that are about the diff. The cost is that nothing autom
 heylogin's behaviour drifts; only the next manual run does.
 
 **The whole suite runs on every target that ships, not only on the machine that wrote it.**
-`.github/workflows/ci.yml` builds a matrix of the six triples in `deny.toml`'s `[graph] targets`
-— linux-musl, Apple and Windows-MSVC, each `x86_64` and `aarch64` — one native GitHub runner per
-triple, no cross-linker anywhere. Each job runs `cargo test --workspace --all-features` in **debug**
+`.github/workflows/ci.yml` builds a matrix of the five triples in `deny.toml`'s `[graph] targets`
+— linux-musl and Windows-MSVC on `x86_64` and `aarch64`, and Apple on `aarch64` only — one native
+GitHub runner per triple, no cross-linker anywhere. Each job runs `cargo test --workspace --all-features` in **debug**
 (so `overflow-checks` stay on, which is the point for code that indexes and does arithmetic over key
 material) and then a separate `--release -p heyl` build whose binary is uploaded as a workflow
 artifact. `fmt` and `clippy` are host-independent and run once, beside the matrix rather than inside
-it. All six are required checks: a target-specific break — a dependency gated to `cfg(unix)`, say —
+it. All five are required checks: a target-specific break — a dependency gated to `cfg(unix)`, say —
 fails the pull request that introduced it rather than being discovered whenever someone next tries
 that platform. That is also the reason `.ship/gates.sh` no longer claims to mirror CI completely;
 one machine cannot.
@@ -852,7 +859,7 @@ actually released.
 | **M4** | **Phone swipe** — long-poll channel, session self-unlock, and the pairing UX. Most of the mechanism already exists from M2: `GrpcClient::create_long_poll_channel_challenge` and the flow in `tools/heyl-fixtures`; M4 promotes it to `heyl login push` and adds the pairing surface | `heyl login push` with a phone; unlock survives to next day 02:00 | M |
 | **M5** | **Session registration** — `SessionMetadata` write, `logout` tombstone, `session list\|revoke` | CLI appears as a named device in the app and is revocable there | M |
 | **M6** | **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy | Full command set; `--format json` stable | M |
-| **M7** | **Distribution** — the binaries already exist: §6's matrix builds all six targets on every pull request and uploads them. What is left is packaging on top of that — `cargo-dist` archives, checksums, build provenance and a curl installer, npm optionalDependencies, PyPI wheels — and the first real version number, since every build until then says `0.0.0 (<sha>)` | `npx`, `uvx` and curl-installer all run the same artifact | M |
+| **M7** | **Distribution** — the binaries already exist: §6's matrix builds all five targets on every pull request and uploads them. What is left is packaging on top of that — `cargo-dist` archives, checksums, build provenance and a curl installer, npm optionalDependencies, PyPI wheels — and the first real version number, since every build until then says `0.0.0 (<sha>)` | `npx`, `uvx` and curl-installer all run the same artifact | M |
 | **M8** | **Hardening** — zeroization audit, fuzz the vault decoder, threat-model review, docs, **crates.io publish** | Ready to use daily | M |
 | **M9** | **FIDO2 login** — CTAP2 `hmac-secret` via `ctap-hid-fido2`, WebAuthn-PRF salt transform, PIN/UV | A FIDO2 key derives the *same* seed as the web app and logs in | M |
 | **M10** | **Device-to-device unlock** — `RequestSessionUnlock` + Sync polling + cancel-on-abort | An unlocked browser session can unlock the CLI; no phone needed | S |

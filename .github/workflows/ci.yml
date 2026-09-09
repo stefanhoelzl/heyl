@@ -41,8 +41,12 @@ jobs:
   build:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    # Healthy jobs finish in 2-4.5 minutes. This is not a performance budget but
+    # a stall detector: the default is six hours, so one degraded runner could
+    # block the branch for an afternoon.
+    timeout-minutes: 15
     strategy:
-      # One target failing must not cancel the other five. Whether a break is
+      # One target failing must not cancel the others. Whether a break is
       # Windows-only or everywhere is the first thing worth knowing, and that
       # answer only exists if every job in the run finishes.
       fail-fast: false
@@ -51,6 +55,12 @@ jobs:
         # an SDK it does not have. Images are pinned rather than `-latest` for
         # the same reason rust-toolchain.toml is: when one target goes red, the
         # question "what changed under it" should have a short answer.
+        #
+        # No `x86_64-apple-darwin`: heyl does not support Intel Macs. Apple
+        # stopped selling them, `macos-26-intel` is the last image GitHub will
+        # publish, and that shrinking fleet is already unusable in practice --
+        # the job that prompted this spent 24 minutes in a release build the
+        # arm64 runner finishes in one, having passed the same tests in 50 s.
         #
         # This list is exactly `[graph] targets` in deny.toml -- cargo-deny
         # vouches for the graph of the binaries built here, so the two lists
@@ -61,9 +71,6 @@ jobs:
             bin: heyl
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
-            bin: heyl
-          - target: x86_64-apple-darwin
-            runner: macos-26-intel
             bin: heyl
           - target: aarch64-apple-darwin
             runner: macos-26

@@ -1,0 +1,22 @@
+[package]
+name        = "heyl-vault"
+version     = "0.0.0"
+description = "heylogin's vault serialization framing. Internal to `heyl`; no API stability guarantee."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heyl-crypto = { workspace = true }
+heyl-domain = { workspace = true }
+serde_json  = { workspace = true, features = ["preserve_order"] }
+snap        = { workspace = true }
+thiserror   = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

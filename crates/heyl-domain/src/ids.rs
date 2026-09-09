@@ -81,11 +81,32 @@ uuid_id!(
 /// Every lock records the generation of the profile that created it, and an
 /// unlock is **refused** rather than attempted when they disagree — see
 /// [`crate::locks`].
+///
+/// **Opaque on purpose.** Every wire field is a `string`
+/// (`ProfileData.key_generation_id`, `VaultProfileLock
+/// .locking_profile_key_generation_id`, `SyncUpdate.Vault.generation_id`), and
+/// nothing in this client ever interprets one — the only operation is equality.
+/// Parsing it into a UUID or a counter would invent a format we do not need and
+/// would fail on values that are perfectly usable.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
 #[serde(transparent)]
-pub struct KeyGenerationId(pub u64);
+pub struct KeyGenerationId(String);
+
+impl KeyGenerationId {
+    /// Adopt the server's value verbatim.
+    #[must_use]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// The value as the server sent it.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 impl fmt::Display for KeyGenerationId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

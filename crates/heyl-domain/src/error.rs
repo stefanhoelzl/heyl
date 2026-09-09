@@ -17,6 +17,16 @@ pub enum DomainError {
         authenticator_id: AuthenticatorId,
     },
 
+    /// An authenticator's `secretInfo` could not be read.
+    ///
+    /// Carries only which field was wrong, never the payload — a `DUMMY`
+    /// authenticator's `secretInfo` is a plaintext seed (§4).
+    #[error("malformed secretInfo: {what}")]
+    MalformedSecretInfo {
+        /// Which part was unreadable.
+        what: &'static str,
+    },
+
     /// The profile has been re-keyed since the lock was written.
     ///
     /// Distinct from a decryption failure on purpose: the fix is to re-sync,

@@ -12,6 +12,10 @@ fn auth_id(n: u8) -> AuthenticatorId {
     AuthenticatorId::parse(&format!("00000000-0000-4000-8000-0000000000{n:02}")).expect("valid")
 }
 
+fn fixture_profile() -> ProfileId {
+    ProfileId::parse("00000000-0000-4000-8000-0000000000aa").expect("valid")
+}
+
 // ---------------------------------------------------------------- timestamps
 
 /// heymerge resolves conflicts with `leftUpdateTime > rightUpdateTime`, a
@@ -109,6 +113,8 @@ fn fixture() -> Fixture {
         keys,
         lock: ProfileAuthenticatorLock {
             authenticator_id: auth_id(1),
+            profile_id: fixture_profile(),
+            profile_key_generation_id: KeyGenerationId::new("gen-1"),
             encrypted_storable_profile_seed: to.seal(
                 &ephemeral,
                 &Nonce::from_bytes([1; 24]),
@@ -130,14 +136,14 @@ fn the_chain_unwraps_both_tiers_from_one_lock() {
     let f = fixture();
     assert_eq!(
         f.keys
-            .unlock_storable_profile_seed(&f.lock)
+            .unlock_storable_profile_seed(&f.lock, &KeyGenerationId::new("gen-1"))
             .expect("opens")
             .expose_secret(),
         &f.storable_seed,
     );
     assert_eq!(
         f.keys
-            .unlock_high_security_profile_seed(&f.lock)
+            .unlock_high_security_profile_seed(&f.lock, &KeyGenerationId::new("gen-1"))
             .expect("opens")
             .expose_secret(),
         &f.high_security_seed,
@@ -154,7 +160,7 @@ fn a_lock_for_another_authenticator_is_refused_rather_than_attempted() {
 
     let err = f
         .keys
-        .unlock_storable_profile_seed(&foreign)
+        .unlock_storable_profile_seed(&foreign, &KeyGenerationId::new("gen-1"))
         .expect_err("refused");
     assert!(
         matches!(err, DomainError::NoLockForAuthenticator { .. }),
@@ -162,9 +168,29 @@ fn a_lock_for_another_authenticator_is_refused_rather_than_attempted() {
     );
 }
 
+/// `ProfileAuthenticatorLock` carries its own `profile_key_generation_id`, and
+/// a stale one is refused the same way `VaultProfileLock`'s is. M1 checked the
+/// authenticator id here but not the generation; the wire message carries both.
+#[test]
+fn a_re_keyed_profile_is_refused_at_the_authenticator_lock_too() {
+    let f = fixture();
+    let err = f
+        .keys
+        .unlock_storable_profile_seed(&f.lock, &KeyGenerationId::new("gen-2"))
+        .expect_err("refused");
+    assert!(
+        matches!(
+            &err,
+            DomainError::KeyGenerationMismatch { profile, lock, .. }
+                if profile.as_str() == "gen-2" && lock.as_str() == "gen-1"
+        ),
+        "{err:?}",
+    );
+}
+
 fn vault_lock(
     profile: &ProfileId,
-    generation: KeyGenerationId,
+    generation: &KeyGenerationId,
 ) -> (VaultProfileLock, [u8; 32], [u8; 32]) {
     let storable = ProfileSeed::<Storable>::from_bytes(&[0x11; 32]);
     let high = ProfileSeed::<HighSecurity>::from_bytes(&[0x22; 32]);
@@ -174,7 +200,7 @@ fn vault_lock(
 
     let lock = VaultProfileLock {
         locking_profile_id: *profile,
-        locking_profile_key_generation_id: generation,
+        locking_profile_key_generation_id: generation.clone(),
         encrypted_storable_vault_key: storable
             .vault_key_encryption_key()
             .expect("derives")
@@ -193,22 +219,22 @@ fn vault_lock(
 #[test]
 fn each_tier_unwraps_its_own_vault_secret() {
     let profile = ProfileId::parse("00000000-0000-4000-8000-0000000000ff").expect("valid");
-    let generation = KeyGenerationId(7);
-    let (lock, vault_secret, protected_secret) = vault_lock(&profile, generation);
+    let generation = KeyGenerationId::new("gen-7");
+    let (lock, vault_secret, protected_secret) = vault_lock(&profile, &generation);
 
     let storable = ProfileSeed::<Storable>::from_bytes(&[0x11; 32]);
     let high = ProfileSeed::<HighSecurity>::from_bytes(&[0x22; 32]);
 
     assert_eq!(
         storable
-            .unlock_vault(&lock, profile, generation)
+            .unlock_vault(&lock, profile, &generation)
             .expect("opens")
             .key()
             .expose_secret(),
         &vault_secret,
     );
     assert_eq!(
-        high.unlock_vault(&lock, profile, generation)
+        high.unlock_vault(&lock, profile, &generation)
             .expect("opens")
             .key()
             .expose_secret(),
@@ -221,20 +247,17 @@ fn each_tier_unwraps_its_own_vault_secret() {
 #[test]
 fn a_re_keyed_profile_is_refused_before_any_decryption() {
     let profile = ProfileId::parse("00000000-0000-4000-8000-0000000000ff").expect("valid");
-    let (lock, _, _) = vault_lock(&profile, KeyGenerationId(7));
+    let (lock, _, _) = vault_lock(&profile, &KeyGenerationId::new("gen-7"));
 
     let storable = ProfileSeed::<Storable>::from_bytes(&[0x11; 32]);
     let err = storable
-        .unlock_vault(&lock, profile, KeyGenerationId(8))
+        .unlock_vault(&lock, profile, &KeyGenerationId::new("gen-8"))
         .expect_err("refused");
     assert!(
         matches!(
-            err,
-            DomainError::KeyGenerationMismatch {
-                profile: KeyGenerationId(8),
-                lock: KeyGenerationId(7),
-                ..
-            }
+            &err,
+            DomainError::KeyGenerationMismatch { profile, lock, .. }
+                if profile.as_str() == "gen-8" && lock.as_str() == "gen-7"
         ),
         "{err:?}",
     );

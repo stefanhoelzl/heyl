@@ -1,0 +1,19 @@
+[package]
+name        = "heyl-ports"
+version     = "0.0.0"
+description = "Port traits for `heyl`: the backend, the keychain, the terminal, the clock, randomness. Internal; no API stability guarantee."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heyl-crypto = { workspace = true }
+heyl-domain = { workspace = true }
+async-trait = { workspace = true }
+thiserror   = { workspace = true }
+zeroize     = { workspace = true }

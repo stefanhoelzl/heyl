@@ -15,6 +15,17 @@ use crate::ids::{AuthenticatorId, KeyGenerationId, ProfileId};
 pub struct ProfileAuthenticatorLock {
     /// Which authenticator can open this lock.
     pub authenticator_id: AuthenticatorId,
+    /// Which profile this lock belongs to.
+    ///
+    /// Redundant with the profile the lock was read out of, and checked
+    /// against it at the `heyl-grpc` boundary for exactly that reason.
+    pub profile_id: ProfileId,
+    /// The generation of that profile's keys when the lock was written.
+    ///
+    /// Checked before any decryption is attempted, the same way
+    /// [`VaultProfileLock`] is: a mismatch means the profile has been re-keyed
+    /// and the lock is stale, which is a different failure from a wrong key.
+    pub profile_key_generation_id: KeyGenerationId,
     /// The profile's storable seed, asym-encrypted.
     pub encrypted_storable_profile_seed: Vec<u8>,
     /// The profile's high-security seed, asym-encrypted.

@@ -1,0 +1,39 @@
+[package]
+name        = "heyl-grpc"
+version     = "0.0.0"
+description = "gRPC-Web adapter implementing `heyl`'s HeylApi port. Internal; no API stability guarantee."
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heyl-crypto = { workspace = true }
+heyl-domain = { workspace = true }
+heyl-ports  = { workspace = true }
+heyl-proto  = { workspace = true }
+
+async-trait  = { workspace = true }
+base64       = { workspace = true }
+bytes        = { workspace = true }
+http         = { workspace = true }
+hyper-rustls = { workspace = true }
+hyper-util   = { workspace = true }
+prost        = { workspace = true }
+prost-types  = { workspace = true }
+rustls       = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+thiserror    = { workspace = true }
+tokio        = { workspace = true }
+tonic        = { workspace = true }
+tonic-prost  = { workspace = true }
+tonic-web    = { workspace = true }
+tower        = { workspace = true }
+
+[dev-dependencies]
+hex    = { workspace = true }
+base64 = { workspace = true }

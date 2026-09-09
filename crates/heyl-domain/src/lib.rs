@@ -10,13 +10,18 @@
 //! `heyl-ports`), orchestration (`heyl-app`), wire types (`heyl-grpc`), and
 //! the serialize/heymerge codec (`heyl-vault`).
 
+pub mod authenticator;
 pub mod error;
 pub mod ids;
 pub mod keys;
 pub mod locks;
+pub mod sync;
 pub mod time;
 pub mod vault;
 
+pub use authenticator::{
+    Authenticator, AuthenticatorPublicKeys, AuthenticatorSecret, RecoverySecret,
+};
 pub use error::DomainError;
 pub use ids::{AuthenticatorId, CommitId, KeyGenerationId, ProfileId, SessionId, VaultId};
 pub use keys::{
@@ -24,5 +29,9 @@ pub use keys::{
     login_signing_key,
 };
 pub use locks::{ProfileAuthenticatorLock, VaultProfileLock};
+pub use sync::{
+    Challenge, Commit, Profile, ProfilePublicKeys, Session, SessionUnlock, SyncSnapshot, Tokens,
+    VaultCommits, VaultSummary,
+};
 pub use time::Timestamp;
 pub use vault::{AuthenticatorType, VaultType};

@@ -153,11 +153,17 @@ fn the_two_tiers_share_one_key_at_the_authenticator_layer() {
         storable_sig.verifying_key()
     );
     assert_eq!(
-        keys.unlock_storable_profile_seed(&stub_lock(&storable_enc))
+        keys.unlock_storable_profile_seed(&stub_lock(&storable_enc), &stub_generation())
             .unwrap()
             .expose_secret(),
         &PROFILE_SEED,
     );
+}
+
+/// The generation the stub lock is written at. Arbitrary: it guards staleness
+/// and never reaches a derivation, so it cannot move a snapshot.
+fn stub_generation() -> heyl_domain::KeyGenerationId {
+    heyl_domain::KeyGenerationId::new("stub-generation")
 }
 
 /// A lock built with the authenticator's own key, so the round trip exercises
@@ -169,6 +175,8 @@ fn stub_lock(enc: &heyl_crypto::EncryptionPrivateKey) -> heyl_domain::ProfileAut
     let to = enc.public_key();
     heyl_domain::ProfileAuthenticatorLock {
         authenticator_id: AuthenticatorId::parse("00000000-0000-4000-8000-000000000001").unwrap(),
+        profile_id: heyl_domain::ProfileId::parse("00000000-0000-4000-8000-0000000000aa").unwrap(),
+        profile_key_generation_id: stub_generation(),
         encrypted_storable_profile_seed: to.seal(
             &ephemeral,
             &Nonce::from_bytes([0x44; 24]),

@@ -6,3 +6,6 @@ tools/.work/
 tools/.venv/
 /target
 /proto/
+
+# Python venv for tools/extract-protos.py, at the root path README.md documents.
+/.venv/

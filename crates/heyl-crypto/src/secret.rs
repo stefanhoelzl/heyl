@@ -4,12 +4,31 @@
 //!
 //! * lives on the heap, so its address is stable and `mlock` stays valid
 //!   across moves of the wrapper;
-//! * holds an [`region::LockGuard`], so the bytes are never written to swap;
-//! * zeroizes on drop, before the lock is released and the memory freed;
+//! * is `mlock`ed, so the bytes are never written to swap, and **the lock is
+//!   never released** — see below;
+//! * zeroizes on drop, before the memory is freed;
 //! * implements no `Deref`, no `AsRef<[u8]>`, no `Serialize`, and a `Debug`
 //!   that redacts — the bytes are reachable only through
 //!   [`SecretBytes::expose_secret`], which makes every access site greppable
 //!   in one query.
+//!
+//! **Why the lock is never released.** `mlock` works on whole pages, and a
+//! 32-byte buffer shares its page with other secrets. `region::lock` rounds the
+//! address down and the size up to page boundaries, and `region::unlock`'s own
+//! documentation warns that "unlocking one mapping may unlock another mapping
+//! that shares the same page". Releasing a lock on drop therefore unlocked
+//! pages that *other, still-live* secrets were sitting on — silently on Linux
+//! and macOS, and on Windows loudly, because `VirtualUnlock` keeps no lock
+//! count and fails with `ERROR_NOT_LOCKED` the second time. The guarantee §3
+//! claims was not holding.
+//!
+//! So the guard is deliberately leaked with [`core::mem::forget`]. Locking for
+//! longer than strictly necessary is the safe direction for a property that
+//! means "never swapped while live", and the cost is bounded: 32-byte
+//! allocations cluster in one allocator size class, so churning thousands of
+//! secrets touches a single page, and a `heyl doctor` run with dozens live at
+//! once touches three. Both are far under Windows' lockable-page ceiling,
+//! which is its minimum working set (~50 pages) less overhead.
 //!
 //! `mlock` can fail — most often `RLIMIT_MEMLOCK` on a constrained system.
 //! That is not fatal and this crate does not report it, because a leaf crate
@@ -28,9 +47,9 @@ use crate::error::CryptoError;
 
 /// A fixed-size buffer of secret bytes: heap-allocated, `mlock`ed, zeroizing.
 pub struct SecretBytes<const N: usize> {
-    // Declared before `bytes` so it drops first: the lock must be released
-    // before the memory it refers to is freed.
-    lock: Option<region::LockGuard>,
+    // Whether `mlock` succeeded, not a guard: the lock is never released, so
+    // there is nothing to hold. See the module docs.
+    locked: bool,
     bytes: Box<[u8; N]>,
 }
 
@@ -39,8 +58,17 @@ impl<const N: usize> SecretBytes<N> {
     #[must_use]
     pub fn zeroed() -> Self {
         let bytes = Box::new([0u8; N]);
-        let lock = region::lock(bytes.as_ptr(), N).ok();
-        Self { lock, bytes }
+        // Leaked on purpose: dropping the guard would unlock the whole page,
+        // including any other live secret on it. Module docs have the full
+        // reasoning. `forget` is safe, so `unsafe_code = "forbid"` still holds.
+        let locked = match region::lock(bytes.as_ptr(), N) {
+            Ok(guard) => {
+                core::mem::forget(guard);
+                true
+            }
+            Err(_) => false,
+        };
+        Self { locked, bytes }
     }
 
     /// Copy `bytes` into a fresh locked buffer.
@@ -82,9 +110,12 @@ impl<const N: usize> SecretBytes<N> {
     /// `false` means the OS refused — typically `RLIMIT_MEMLOCK`. The buffer
     /// still zeroizes; it is simply swappable. `heyl-cli` refuses to start in
     /// that case rather than warning — see `heyl_platform::process`.
+    ///
+    /// `true` can also mean the page was already locked by an earlier secret.
+    /// That is the same guarantee, not a weaker one.
     #[must_use]
     pub fn is_locked(&self) -> bool {
-        self.lock.is_some()
+        self.locked
     }
 
     /// Fill the buffer in place. Internal: keeps secrets off the stack.
@@ -101,8 +132,8 @@ impl<const N: usize> Clone for SecretBytes<N> {
 
 impl<const N: usize> Drop for SecretBytes<N> {
     fn drop(&mut self) {
-        // Before the lock is released and the allocation freed: field drop
-        // order (`lock`, then `bytes`) takes care of the rest.
+        // Before the allocation is freed. The lock outlives this and every
+        // other secret on the page, deliberately — see the module docs.
         self.bytes.zeroize();
     }
 }

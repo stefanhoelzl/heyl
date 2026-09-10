@@ -99,13 +99,18 @@ enum Command {
         confirm: bool,
     },
 
-    /// heylogin's gRPC surface, by hand. **Unsafe by construction.**
+    /// UNSAFE — heylogin's gRPC surface by hand, with no guards.
     ///
-    /// No guards, destructive RPCs reachable by name, key material printable.
-    /// Point it at a throwaway account. Hidden, and only present in a build
-    /// made with `--features api` (DESIGN.md §5).
+    /// Every one of the 123 RPCs is reachable by name. `CreateTokens` with a
+    /// `BACKUP_CODE` signature performs the destructive recovery `heyl
+    /// recovery` asks about — except nothing asks. `api derive` prints seeds
+    /// and vault keys to the terminal. **Point it at a throwaway account.**
+    ///
+    /// Present only in a build made with `--features api`, which is what keeps
+    /// `prost-reflect` and the embedded descriptor out of the release
+    /// dependency graph (DESIGN.md §5). It is listed here rather than hidden:
+    /// a command the binary actually has should say so.
     #[cfg(feature = "api")]
-    #[command(hide = true)]
     Api {
         #[command(subcommand)]
         command: api::Api,

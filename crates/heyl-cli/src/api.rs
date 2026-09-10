@@ -31,7 +31,7 @@
 //! Nothing is ambient: no keychain is read, and the token comes from the
 //! request you build. `HEYL_TOKEN=bad heyl api call Sync` reproduces
 //! `DomainError 30420` against the live backend, which is how M0 produced
-//! `tests/fixtures/protocol/sync-bad-token` by hand.
+//! `heyl-grpc/tests/protocol/sync-bad-token` by hand.
 
 use base64::Engine as _;
 use clap::Subcommand;

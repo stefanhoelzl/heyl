@@ -1,22 +1,27 @@
 //! Development tooling. Not published, not shipped, not on any user's machine.
 //!
-//! Two jobs, both of which need a real account and therefore cannot live in
-//! the test suite:
+//! One job, which needs a real account and therefore cannot live in the test
+//! suite: `record` fills in a scenario, running the shipped binary against a
+//! live account and then re-keying what it captured so the throwaway account's
+//! seed and recovery code never enter the repository.
 //!
-//! * `record` — capture a whole session's gRPC-Web bytes in one pass, during
-//!   the destructive recovery that is the only chance to see the login
-//!   sequence.
-//! * `rekey` — turn a real recorded exchange into a committed fixture whose
-//!   key material is entirely synthetic, so the throwaway account's seed and
-//!   recovery code never enter the repository.
+//! `rekey` is no longer a separate step. Fusing it into `record` means the raw
+//! recording — real key material, a live token — need never be written down;
+//! `--no-rekey` is the one path that writes it, for debugging a recording that
+//! went wrong, which is the right way round.
+//!
+//! `derive` is gone too. It materialised a situation by copying the base corpus
+//! and editing it, back when situations were copies of one recording. Every
+//! scenario is recorded independently now, and its two documented edits — set a
+//! JSON pointer, replace a response with a refusal — turned out to be things a
+//! person can do in an editor. The crypto-consistency argument that justified
+//! it belongs to `rekey`, which really cannot be done by hand.
 //!
 //! The probing subcommands are gone: `heyl api` does that job now, and better.
 //! `probe-signing` existed to settle what `CreateTokens` verifies by varying
 //! `client-type`, the authenticator and the signature; `heyl api call` varies
 //! all three as ordinary arguments, against any RPC rather than one.
 
-mod derive;
-mod mem;
 mod record;
 mod rekey;
 
@@ -36,66 +41,23 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Materialise a situation from the base corpus.
+    /// Fill in a scenario against a real account.
     ///
-    /// A situation is a whole corpus on disk, not a patch applied at load
-    /// time — but every record has to stay crypto-consistent, so it is the
-    /// base copied and edited rather than hand-authored. `diff -r` against
-    /// the base then shows the whole difference from reality.
-    Derive {
-        /// The corpus to copy.
-        #[arg(long, default_value = "tests/fixtures/api/base")]
-        base: std::path::PathBuf,
-
-        /// Where the situation goes.
-        #[arg(long)]
-        out: std::path::PathBuf,
-
-        /// `<record>:<pointer>=<json>`, repeatable. `null` removes the key.
-        #[arg(long = "set")]
-        set: Vec<String>,
-
-        /// `<record>:<status>[:<domain-code>[:<message>]]`, repeatable.
-        #[arg(long = "fail")]
-        fail: Vec<String>,
-
-        /// Keep only the first N records.
-        #[arg(long)]
-        truncate: Option<usize>,
-    },
-
-    /// Record a whole session against a real account, in one pass.
-    ///
-    /// Captures the gRPC-Web bytes for the recovery and every read `doctor`
-    /// performs. The output holds **real key material and a live token** and is
-    /// input to `rekey`, never something to commit.
-    ///
-    /// A destructive recovery cannot be repeated without pairing a phone
-    /// again, so this captures everything a wire-level replay needs in a
-    /// single run.
+    /// Reads the invocations from the scenario file, runs each as the shipped
+    /// binary, re-keys what was captured, and leaves a file that is safe to
+    /// commit. A destructive recovery cannot be repeated without pairing a
+    /// phone again, so the whole sequence is captured in one run.
     Record {
-        /// Where to write the raw recording. A directory of records.
-        #[arg(long, default_value = ".work/recording")]
-        out: std::path::PathBuf,
-
-        /// Proceed without asking before disconnecting anything.
+        /// The scenario file to fill in.
         #[arg(long)]
-        confirm: bool,
-    },
+        scenario: std::path::PathBuf,
 
-    /// Re-key a real recording into a committable fixture.
-    ///
-    /// Replaces every secret with synthetic material while keeping the real
-    /// vault documents, then asserts the result opens with the committed test
-    /// code and **not** with the real one.
-    Rekey {
-        /// The raw recording from `record`.
-        #[arg(long, default_value = ".work/recording")]
-        input: std::path::PathBuf,
-
-        /// Where to write the fixture.
-        #[arg(long, default_value = "tests/fixtures/api/base")]
-        out: std::path::PathBuf,
+        /// Keep the raw recording instead of re-keying it.
+        ///
+        /// Writes **real key material and a live token** beside the scenario,
+        /// for debugging a recording that went wrong. Never commit the result.
+        #[arg(long)]
+        no_rekey: bool,
     },
 }
 
@@ -106,7 +68,7 @@ fn main() -> std::process::ExitCode {
     }
 
     let cli = Cli::parse();
-    let runtime = match tokio::runtime::Builder::new_current_thread()
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
@@ -116,26 +78,10 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-
     let result = match cli.command {
-        Command::Derive {
-            base,
-            out,
-            set,
-            fail,
-            truncate,
-        } => set
-            .iter()
-            .map(|raw| derive::parse_set(raw))
-            .chain(fail.iter().map(|raw| derive::parse_fail(raw)))
-            .chain(truncate.map(|n| Ok(derive::Edit::Truncate(n))))
-            .collect::<Result<Vec<_>, _>>()
-            .and_then(|edits: Vec<derive::Edit>| derive::run(&base, &out, &edits)),
-
-        Command::Record { out, confirm } => {
-            runtime.block_on(record::run(&cli.endpoint, &out, confirm))
+        Command::Record { scenario, no_rekey } => {
+            runtime.block_on(record::run(&cli.endpoint, &scenario, !no_rekey))
         }
-        Command::Rekey { input, out } => rekey::run(&input, &out),
     };
 
     match result {

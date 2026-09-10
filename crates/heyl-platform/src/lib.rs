@@ -18,9 +18,15 @@ pub mod process;
 pub mod random;
 pub mod terminal;
 
+#[cfg(feature = "test-ports")]
+pub mod test_state;
+
 pub use clock::SystemClock;
 pub use headless::HeadlessSecretStore;
 pub use keychain::KeyringStore;
 pub use process::{HardeningError, harden_process};
 pub use random::OsRandom;
 pub use terminal::SystemTerminal;
+
+#[cfg(feature = "test-ports")]
+pub use test_state::TestState;

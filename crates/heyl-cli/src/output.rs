@@ -25,7 +25,46 @@ pub enum Format {
 ///
 /// Says what was lost as well as what was gained: the user has a session, and
 /// no longer has whatever the recovery disconnected.
-pub fn recovery(outcome: &RecoveryOutcome) {
+pub fn recovery(outcome: &RecoveryOutcome, format: Format) {
+    match format {
+        Format::Human => recovery_human(outcome),
+        Format::Json => recovery_json(outcome),
+    }
+}
+
+/// `recovery`, as a machine reads it.
+///
+/// Every value here comes from the backend — the account, the session, the
+/// window heylogin actually granted, the authenticators it listed as about to
+/// go. Nothing is derived from the local clock, which is what lets a scenario
+/// assert this document verbatim without normalising anything out of it.
+fn recovery_json(outcome: &RecoveryOutcome) {
+    let disconnected: Vec<_> = outcome
+        .disconnected
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "id": d.id.to_string(),
+                "kind": format!("{:?}", d.kind),
+            })
+        })
+        .collect();
+
+    let document = serde_json::json!({
+        "unstable": "recovery's JSON shape is not a compatibility promise until M6",
+        "userId": outcome.user_id,
+        "sessionId": outcome.session_id.to_string(),
+        "unlockedUntil": outcome.unlocked_until.map(|t| t.to_string()),
+        "disconnected": disconnected,
+    });
+
+    match serde_json::to_string_pretty(&document) {
+        Ok(rendered) => println!("{rendered}"),
+        Err(e) => eprintln!("heyl: could not render the recovery as JSON: {e}"),
+    }
+}
+
+fn recovery_human(outcome: &RecoveryOutcome) {
     eprintln!("Recovered access to {}.", outcome.user_id);
     eprintln!("Session {} is registered.", outcome.session_id);
     match outcome.unlocked_until {

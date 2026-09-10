@@ -276,7 +276,7 @@ Server-stored per authenticator (`Authenticator`): the derived public keys, a `s
 > (`onlineRecoverWithNewAuthenticator`) deletes nothing — the server already removed the push
 > authenticator. Vault regeneration is driven separately, by the backend flagging a vault `dirty` at
 > sync (§7). *Observed*: in the recorded session taken straight after a real recovery, all ten vaults
-> came back `dirty: false` (`tests/fixtures/api/base/03-sync.json`), so the recovery itself flags
+> came back `dirty: false` (the `Sync` call in `crates/heyl-cli/tests/scenarios/recovery-then-doctor.json`), so the recovery itself flags
 > nothing. Whether re-pairing later dirties anything is **unverified** — but no mechanism for it is
 > visible in the clients.
 >

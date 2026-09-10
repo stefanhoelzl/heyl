@@ -54,7 +54,8 @@ which is why sessions are named for their callers.
 | [`crates/heyl-grpc/`](crates/heyl-grpc/) | gRPC-Web adapter; the only crate that sees the generated types |
 | [`crates/heyl-cli/`](crates/heyl-cli/) | The `heyl` binary and the composition root |
 | [`descriptors/`](descriptors/) | The schema as a `FileDescriptorSet` — 19 services, 123 methods, extraction verified lossless |
-| [`tests/fixtures/protocol/`](tests/fixtures/protocol/) | Recorded gRPC-Web exchanges: the happy path and three error shapes |
+| [`crates/heyl-cli/tests/scenarios/`](crates/heyl-cli/tests/scenarios/) | The e2e suite: each file is a list of `heyl` invocations, the traffic they made, and what they printed |
+| [`crates/heyl-grpc/tests/protocol/`](crates/heyl-grpc/tests/protocol/) | Recorded gRPC-Web exchanges: the happy path and three error shapes |
 | [`tools/`](tools/) | Development tools. The only code here that talks to a real account |
 | [`vendor/tonic-web/`](vendor/) | Upstream, with a one-line fix for dropped gRPC-Web trailers |
 

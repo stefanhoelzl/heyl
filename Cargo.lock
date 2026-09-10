@@ -1119,32 +1119,17 @@ dependencies = [
 name = "heyl-fixtures"
 version = "0.0.0"
 dependencies = [
- "async-trait",
  "base64",
- "bytes",
  "clap",
- "heyl-app",
  "heyl-crypto",
  "heyl-domain",
  "heyl-grpc",
  "heyl-platform",
- "heyl-ports",
  "heyl-proto",
- "http",
- "http-body",
- "http-body-util",
- "hyper-rustls",
- "hyper-util",
  "prost",
- "rustls",
- "rustls-graviola",
- "rustls-platform-verifier",
  "serde",
  "serde_json",
  "tokio",
- "tonic",
- "tonic-web",
- "tower",
  "zeroize",
 ]
 
@@ -1163,6 +1148,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "hyper",
  "hyper-rustls",
  "hyper-util",
  "prost",
@@ -1189,6 +1175,7 @@ name = "heyl-platform"
 version = "0.0.0"
 dependencies = [
  "async-trait",
+ "base64",
  "heyl-crypto",
  "heyl-domain",
  "heyl-ports",
@@ -1198,6 +1185,8 @@ dependencies = [
  "rand_core 0.9.5",
  "rlimit",
  "rpassword",
+ "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "zeroize",
@@ -1295,6 +1284,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
+name = "httpdate"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1317,6 +1312,7 @@ dependencies = [
  "http",
  "http-body",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
@@ -2602,6 +2598,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

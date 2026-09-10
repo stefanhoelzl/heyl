@@ -10,10 +10,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256, Sha512};
 
 fn load(name: &str) -> Value {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/crypto/upstream/"
-    );
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/upstream/");
     let raw = std::fs::read_to_string(format!("{path}{name}"))
         .unwrap_or_else(|e| panic!("reading {name}: {e}"));
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parsing {name}: {e}"))

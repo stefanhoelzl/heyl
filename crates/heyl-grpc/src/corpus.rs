@@ -12,63 +12,62 @@
 //!
 //! # What is recorded
 //!
-//! One file per call, ordered, under a directory per situation:
+//! One file per scenario, structured by step:
 //!
 //! ```text
-//! tests/fixtures/api/base/
-//!   01-create-challenge.json
-//!   02-create-tokens.json
-//!   03-sync.json
-//!   …
+//! crates/heyl-cli/tests/scenarios/recovery-then-doctor.json
+//!   meta:  the synthetic code and the seed a replay must draw first
+//!   steps: [ { argv, stdin, exit, calls: [ … ], stdout } , … ]
 //! ```
 //!
-//! `diff -r base/ expired-unlock/` is then the whole difference between a
-//! situation and reality, which is the review property that made full records
-//! preferable to a base plus patches.
+//! Half of it is hand-written and half generated: the `argv`/`stdin`/`exit` of
+//! each step say what to run, and `record` fills in the rest. Grouping calls
+//! under the step that made them is what lets a replay reject a call that
+//! arrives during the wrong invocation.
 //!
 //! **No token is ever written.** The bearer token is metadata on a
 //! [`crate::Request`] like any other, so a recorder sees it; it is dropped here
 //! rather than redacted later, because a redaction step that runs after the
 //! fact is a step that can be forgotten.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::{fs, path::Path, sync::Mutex};
 
 use heyl_ports::ApiError;
 use prost::Message;
 
 use crate::{HeyloginApi, json};
 
-/// What a replay needs to know that is not in the records.
+/// A whole scenario: a list of `heyl` invocations and the traffic they made.
 ///
-/// A corpus that requires the reader to guess which random values produced it
-/// is coupled to whatever generated it. This states them instead.
+/// One file, because nothing derives from anything any more. The layout that
+/// preceded this — `_meta.json`, one numbered file per call, and expectations
+/// beside them — existed so `diff -r base <situation>` showed how a situation
+/// differed from reality. Every scenario is now recorded independently, so
+/// there is no sibling to diff against and the numbering carried meaning
+/// nothing else could see.
 ///
-/// Lives in `_meta.json`; the leading underscore is what keeps it out of the
-/// record listing.
+/// **Structured by step**, so a replay knows which invocation a call belongs
+/// to. An out-of-step call then fails where it happens rather than quietly
+/// matching a record meant for a later command.
+///
+/// Half the file is hand-written and half is generated: `argv`, `stdin`,
+/// `exit` and `redact` state what to run, and `record` fills in `meta`,
+/// `calls` and `stdout`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Meta {
-    /// The synthetic recovery code the corpus was re-keyed onto.
-    pub code: String,
-    /// The 32-byte seed the session encryption key is derived from, base64.
-    ///
-    /// A recovery draws this from `RandomSource` and derives the session key
-    /// with it, so the unlock blob is sealed to whatever the replay's random
-    /// source yields first. Stating it lets a test supply exactly that.
-    pub session_seed: String,
+pub struct Scenario {
+    /// What a replay needs that is not in the calls.
+    pub meta: Meta,
+    /// The invocations, in order.
+    pub steps: Vec<Step>,
 }
 
-impl Meta {
-    /// Read `_meta.json` from a corpus directory.
+impl Scenario {
+    /// Read a scenario file.
     ///
     /// # Errors
-    /// [`CorpusError`] if it is missing or does not parse.
-    pub fn load(dir: &Path) -> Result<Self, CorpusError> {
-        let path = dir.join("_meta.json");
-        let raw = fs::read_to_string(&path).map_err(|e| CorpusError::Io {
+    /// [`CorpusError`] if it cannot be read or does not parse.
+    pub fn load(path: &Path) -> Result<Self, CorpusError> {
+        let raw = fs::read_to_string(path).map_err(|e| CorpusError::Io {
             path: path.display().to_string(),
             reason: e.to_string(),
         })?;
@@ -78,25 +77,98 @@ impl Meta {
         })
     }
 
-    /// Write `_meta.json` into a corpus directory.
+    /// Write a scenario file, pretty-printed so `git diff` is readable.
     ///
     /// # Errors
     /// [`CorpusError::Io`] if it cannot be written.
-    pub fn write(&self, dir: &Path) -> Result<(), CorpusError> {
-        let path = dir.join("_meta.json");
+    pub fn write(&self, path: &Path) -> Result<(), CorpusError> {
+        let io = |e: &std::io::Error| CorpusError::Io {
+            path: path.display().to_string(),
+            reason: e.to_string(),
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| io(&e))?;
+        }
         let body = serde_json::to_string_pretty(self).map_err(|e| CorpusError::Malformed {
             path: path.display().to_string(),
             reason: e.to_string(),
         })?;
-        fs::create_dir_all(dir).map_err(|e| CorpusError::Io {
-            path: dir.display().to_string(),
-            reason: e.to_string(),
-        })?;
-        fs::write(&path, body + "\n").map_err(|e| CorpusError::Io {
-            path: path.display().to_string(),
-            reason: e.to_string(),
-        })
+        fs::write(path, body + "\n").map_err(|e| io(&e))
     }
+
+    /// The seed a replay must draw first, decoded.
+    ///
+    /// # Errors
+    /// [`CorpusError::Malformed`] if it is not 32 base64 bytes.
+    pub fn session_seed(&self) -> Result<[u8; 32], CorpusError> {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD
+            .decode(&self.meta.session_seed)
+            .ok()
+            .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+            .ok_or_else(|| CorpusError::Malformed {
+                path: "meta.session_seed".to_owned(),
+                reason: "not 32 base64-encoded bytes".to_owned(),
+            })
+    }
+}
+
+/// One `heyl` invocation, and what it did.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Step {
+    /// The arguments after `heyl`. Hand-written.
+    pub argv: Vec<String>,
+
+    /// What to write to the process's stdin. Hand-written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<String>,
+
+    /// The exit code it must return. Hand-written; defaults to success.
+    #[serde(default)]
+    pub exit: i32,
+
+    /// JSON pointers into `stdout` to blank before comparing. Hand-written.
+    ///
+    /// The rule is to prefer server-provided values, which are stable because
+    /// they come from the recording; this is the escape hatch for the ones
+    /// that are genuinely local.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redact: Vec<String>,
+
+    /// The calls this step made, in order. Recorded.
+    #[serde(default)]
+    pub calls: Vec<Record>,
+
+    /// The JSON this step must print. Written from the replay, not the live
+    /// run: `rekey` moves identifiers, and live output would carry the real
+    /// account's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<serde_json::Value>,
+}
+
+/// What a replay needs to know that is not in the calls.
+///
+/// A scenario that requires the reader to guess which random values produced
+/// it is coupled to whatever generated it. This states them instead.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Meta {
+    /// The synthetic recovery code the scenario was re-keyed onto.
+    pub code: String,
+
+    /// The 32-byte seed the session encryption key is derived from, base64.
+    ///
+    /// A recovery draws this from `RandomSource` and derives the session key
+    /// with it, so the unlock blob is sealed to whatever the replay's random
+    /// source yields first. Stating it lets a test supply exactly that.
+    pub session_seed: String,
+
+    /// Anything a reader needs to know that the file cannot show.
+    ///
+    /// JSON has no comments, and one scenario is not a recording at all:
+    /// `token_refresh_needed` is set by the backend as a token ages, and
+    /// `CreateTokensRequest` has no lifetime field, so nothing can ask for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// One recorded call.
@@ -197,79 +269,6 @@ impl From<CorpusError> for ApiError {
     }
 }
 
-/// Load every record in a directory, in filename order.
-///
-/// Filenames are `NN-<method>.json`, so lexical order is call order — which is
-/// what disambiguates the five `ListCommits` calls a session makes, none of
-/// which the wire fixture recorded a request for.
-///
-/// # Errors
-/// [`CorpusError`] if the directory cannot be read or a file does not parse.
-pub fn load(dir: &Path) -> Result<Vec<Record>, CorpusError> {
-    let io = |path: &Path, e: &std::io::Error| CorpusError::Io {
-        path: path.display().to_string(),
-        reason: e.to_string(),
-    };
-
-    let mut paths: Vec<PathBuf> = fs::read_dir(dir)
-        .map_err(|e| io(dir, &e))?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e == "json"))
-        // `_meta.json` states the code and session seed; it is not a call.
-        .filter(|p| {
-            !p.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with('_'))
-        })
-        .collect();
-    paths.sort();
-
-    paths
-        .iter()
-        .map(|path| {
-            let raw = fs::read_to_string(path).map_err(|e| io(path, &e))?;
-            serde_json::from_str(&raw).map_err(|e| CorpusError::Malformed {
-                path: path.display().to_string(),
-                reason: e.to_string(),
-            })
-        })
-        .collect()
-}
-
-/// Write a record as `NN-<method>.json`.
-///
-/// # Errors
-/// [`CorpusError::Io`] if the file cannot be written.
-pub fn write(dir: &Path, index: usize, record: &Record) -> Result<PathBuf, CorpusError> {
-    let io = |path: &Path, e: &std::io::Error| CorpusError::Io {
-        path: path.display().to_string(),
-        reason: e.to_string(),
-    };
-    fs::create_dir_all(dir).map_err(|e| io(dir, &e))?;
-
-    let slug = record
-        .method
-        .rsplit('/')
-        .next()
-        .unwrap_or(&record.method)
-        .chars()
-        .flat_map(|c| {
-            if c.is_uppercase() {
-                vec!['-', c.to_ascii_lowercase()]
-            } else {
-                vec![c]
-            }
-        })
-        .collect::<String>();
-    let path = dir.join(format!("{:02}{slug}.json", index + 1));
-
-    let body = serde_json::to_string_pretty(record).map_err(|e| CorpusError::Malformed {
-        path: path.display().to_string(),
-        reason: e.to_string(),
-    })?;
-    fs::write(&path, body + "\n").map_err(|e| io(&path, &e))?;
-    Ok(path)
-}
-
 /// Wraps any API and keeps what crossed it.
 ///
 /// The generated implementation forwards all 123 methods and hands the unary
@@ -344,14 +343,6 @@ pub struct RecordedApi {
 }
 
 impl RecordedApi {
-    /// Replay a directory of records.
-    ///
-    /// # Errors
-    /// [`CorpusError`] if the directory cannot be read or a file does not parse.
-    pub fn load(dir: &Path) -> Result<Self, CorpusError> {
-        Ok(Self::new(load(dir)?))
-    }
-
     /// Replay records already in hand.
     #[must_use]
     pub fn new(records: Vec<Record>) -> Self {

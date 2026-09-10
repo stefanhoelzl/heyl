@@ -1,0 +1,1497 @@
+{
+  "meta": {
+    "code": "1111-2222-3333-4444-5555-6666",
+    "session_seed": "ERERERERERERERERERERERERERERERERERERERERERE=",
+    "note": "Converted from the M4 corpus, not re-recorded: its CreateChallenge still lists the Push authenticator being disconnected, because the recording was made during the recovery that deleted it. No later recording can reproduce that. The calls carry no request bodies for the same reason the corpus they came from did not -- rekey dropped requests holding a signature and a sealed seed -- so they match on method and order alone."
+  },
+  "steps": [
+    {
+      "argv": [
+        "recovery",
+        "--email",
+        "fixture@example.com",
+        "--confirm",
+        "--format",
+        "json"
+      ],
+      "stdin": "1111-2222-3333-4444-5555-6666\n",
+      "exit": 0,
+      "calls": [
+        {
+          "method": "/domain.CredentialService/CreateChallenge",
+          "responses": [
+            {
+              "userId": "c0500acb-2b47-4495-8f1a-3706dc605c5e",
+              "challenge": "eyJhbGciOiJIUzI1NiIsImhsLXZlcnNpb24iOiIzIiwidHlwIjoiSldUIn0.eyJpc3MiOiJjaGFsbGVuZ2UiLCJzdWIiOiJjMDUwMGFjYi0yYjQ3LTQ0OTUtOGYxYS0zNzA2ZGM2MDVjNWUiLCJleHAiOjE3ODg5NTAzMzZ9.qgNGypJZ2J8EF3wErO_DU5D6bN4Z1iy7QeoLWEZcZoQ",
+              "authenticators": [
+                {
+                  "id": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                  "secretInfo": "{\"checksum\":\"Deypt/qKp9Xq8LFPrcSHbusJ52Q94CGfGSlN+FYPszQ=\",\"recoveryParameters\":{\"saltBase64\":\"aGV5bC1maXh0dXJlLXNhbHQ=\",\"iterations\":1,\"memoryCost\":8192,\"parallelism\":1}}",
+                  "authenticatorType": "AUTHENTICATOR_TYPE_BACKUP_CODE"
+                },
+                {
+                  "id": "52bf9e45-3461-47f6-9e6b-a0865fbfaf85",
+                  "secretInfo": "",
+                  "authenticatorType": "AUTHENTICATOR_TYPE_PUSH"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "method": "/domain.CredentialService/CreateTokens",
+          "responses": [
+            {
+              "accessToken": {
+                "token": "fixture-access-token"
+              },
+              "sessionId": "88d046d5-ee38-4be4-aa5c-24ce6e805980",
+              "syncUpdate": {
+                "sessions": [
+                  {
+                    "id": "88d046d5-ee38-4be4-aa5c-24ce6e805980",
+                    "lastUsedAt": "2026-09-09T10:23:59Z",
+                    "unlockedAt": "2026-09-09T10:23:59.068370Z",
+                    "unlockedUntil": "2026-09-10T00:00:00Z",
+                    "createdAt": "2026-09-09T10:23:59Z",
+                    "clientSettings": "",
+                    "sessionType": "SESSION_TYPE_BACKUP_CODE",
+                    "enabledProfileIds": [],
+                    "unlockTimeLimit": {
+                      "enabled": true,
+                      "minutes": 480
+                    },
+                    "unlockTimeLimitMinutes": 480
+                  }
+                ],
+                "vaults": [
+                  {
+                    "id": "2ec7a7ff-5b23-4cbd-afbf-cbb05c976876",
+                    "commitId": "89dde026-d144-4a8e-a1d5-e9c7f399eab9",
+                    "generationId": "bb7ef721-b883-4de1-ae7b-f85593f55639",
+                    "vaultType": "VAULT_TYPE_META",
+                    "associatedVaultId": "",
+                    "organizationId": "",
+                    "profiles": [
+                      {
+                        "id": "9d9ef526-ca0a-4993-bdee-2155eafb701c"
+                      }
+                    ],
+                    "profileKeyGenerationId": "98d29781-e2eb-4d90-9572-c053c750f33c",
+                    "messagePublicKey": "70EHo3AOeNPCMbV7Bm4xBRwd9WZv29ZOO+mJ/7ILUXI=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_NONE",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  },
+                  {
+                    "id": "6e577b16-1303-47c3-8579-37e59cb71276",
+                    "commitId": "0ca99e10-fd09-44c4-b766-956428e23ba0",
+                    "generationId": "2f1df2c8-7db3-4371-afd1-b167c14a0cf5",
+                    "vaultType": "VAULT_TYPE_PRIVATE",
+                    "associatedVaultId": "",
+                    "organizationId": "",
+                    "profiles": [
+                      {
+                        "id": "b78ce94d-3f5c-484d-ad01-427347c5e29c"
+                      }
+                    ],
+                    "profileKeyGenerationId": "afe5cbe5-1a74-4cad-a9a2-49994e6ddd79",
+                    "messagePublicKey": "bDU1DVdDjVVJuZPdlr4y4PhZx2DYnVqmvEGI0M/JEgg=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_NONE",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  },
+                  {
+                    "id": "52300857-0e3a-4f4a-b3b3-86c3cef3d9d5",
+                    "commitId": "3eb60d24-0833-4d63-8fb1-60f4e0731468",
+                    "generationId": "7cc8dc81-351e-4470-8a53-8037bc563f00",
+                    "vaultType": "VAULT_TYPE_ORGANIZATION_PERSONAL",
+                    "associatedVaultId": "",
+                    "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "profiles": [
+                      {
+                        "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d"
+                      },
+                      {
+                        "id": "7dc293a0-3852-4ae2-bc38-8e5487825c93"
+                      }
+                    ],
+                    "profileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                    "messagePublicKey": "rgEh0elYR0OZlWVeIWZJGA4jTHJoWQEz153/sN/eR34=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_NONE",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  },
+                  {
+                    "id": "0f176b78-18e3-4609-82b6-e1228673ade4",
+                    "commitId": "942295bd-a127-4c09-953f-8ffe48b189be",
+                    "generationId": "48305ecd-bfed-4259-b34e-0096ed69cbd4",
+                    "vaultType": "VAULT_TYPE_TEAM_META",
+                    "associatedVaultId": "",
+                    "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "profiles": [
+                      {
+                        "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d"
+                      },
+                      {
+                        "id": "7dc293a0-3852-4ae2-bc38-8e5487825c93"
+                      }
+                    ],
+                    "profileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                    "messagePublicKey": "lLs2iMVNl8+IgY1WqLaWfT+fXolAp+x8Rxl+yOJacDo=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_ALL_ORGANIZATION_PROFILES",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  },
+                  {
+                    "id": "111bc97a-8949-4e6b-a7e2-8cb534774db8",
+                    "commitId": "5c59a6cc-b257-40df-b930-03b1c6e55f06",
+                    "generationId": "0a038bca-0d53-44fc-a724-648de340e3a7",
+                    "vaultType": "VAULT_TYPE_TEAM",
+                    "associatedVaultId": "0f176b78-18e3-4609-82b6-e1228673ade4",
+                    "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "profiles": [
+                      {
+                        "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d"
+                      },
+                      {
+                        "id": "7dc293a0-3852-4ae2-bc38-8e5487825c93"
+                      }
+                    ],
+                    "profileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                    "messagePublicKey": "51c7xRvwcFuoK+Fmo+39LOukUG6iPSozlTXLV+eueTk=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_ALL_ORGANIZATION_PROFILES",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  }
+                ],
+                "channels": [],
+                "sessionUnlock": {
+                  "encryptedSecret": "AgICAgICAgICAgICAgICAgICAgICAgICpOCSkrZRwni5dyxWn1+puxPZBrRqtoyd+dwrRAn4ogmuLBP19BzGKySzhWVxorURVWNFwMkq3vFjQHNULRoNSke3iS9tCdTWpJHDtWMPH/Q=",
+                  "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54"
+                },
+                "achievements": [
+                  "BAE_REGISTER_IOS",
+                  "WEB_SESSION_CREATE",
+                  "WEB_SESSION_UNLOCK",
+                  "COR_STORE_BACKUP_CODE_META_VAULT",
+                  "WEB_ORGANIZATION_CREATE",
+                  "WEB_LOGIN_ADD",
+                  "WEB_LOGIN_ADD_FIRST_MANUAL",
+                  "COR_LOGINS_TOTAL_1",
+                  "BAE_LOGIN_RECOVERY"
+                ],
+                "serverTime": "2026-09-09T10:23:59.067112933Z",
+                "user": {
+                  "serverSideSettings": "",
+                  "authenticatorBlockHash": "6hXr9TltUoCf3lEVGKvNqu4VwYg+WlGgYXHx5nc0qeI=",
+                  "preferredLocale": "en_DE",
+                  "preliminaryEmail": "",
+                  "webauthnCredentials": [],
+                  "userClientSettings": "{}",
+                  "openUserConfirmationIds": [],
+                  "profilesLocked": false
+                },
+                "updatedFields": [
+                  "SU_PROFILES",
+                  "SU_ORGANIZATIONS",
+                  "SU_USER",
+                  "SU_VAULTS",
+                  "SU_SESSIONS",
+                  "SU_ACHIEVEMENTS",
+                  "SU_CHANNELS",
+                  "SU_RELATED_PROFILES",
+                  "SU_MAINTENANCE_SETTINGS"
+                ],
+                "organizations": [
+                  {
+                    "id": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "name": "fixture",
+                    "icon": "",
+                    "superUserId": "a92e621b-2570-46ba-9c47-27068073d1a2",
+                    "profiles": [],
+                    "subscriptionError": "SUBSCRIPTION_ERROR_OK",
+                    "isPreliminary": false,
+                    "auditlogEnable": false,
+                    "adminInfo": {
+                      "entraTenantId": "",
+                      "csvIntegrationActive": false,
+                      "googleWorkspaceIntegrationActive": false,
+                      "adminProfile": {
+                        "id": "7dc293a0-3852-4ae2-bc38-8e5487825c93",
+                        "profileType": "PROFILE_TYPE_ORGANIZATION_ADMIN",
+                        "keyGenerationId": "d0661b2c-20a9-4a3a-94d7-09c0c1517524",
+                        "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                        "highSecurityIdentitySigPubKey": "DhbOvVyiMJze+3Df4rAWgrsg42qDNBmtHPV31G9PS7g=",
+                        "highSecurityVaultKeyEncPubKey": "zvTkPrpx4SBAWoHPJqPioxNpfFdFqNXAXVBCYz7wlS8=",
+                        "highSecurityVaultKeyEncPubKeySignature": "tyYLarsvwo4K54vX70WdpaqP86Ki6PL1LIyXw/JNzrp+CROYeMyZIJJb5raqOLQnjCfF83+5lsMky/VDjSLrDQ==",
+                        "highSecurityProfileSeedEncPubKey": "VWV0VS73Hri0FYGIHIF8ofm0T0wPZB6FV5LicGoPH1w=",
+                        "highSecurityProfileSeedEncPubKeySignature": "OG0Z8I6iKMsPI9CQTlwWPO+8/c6fDBUgp5n4XL+HuDsKbRWTu4rMQBI6xK1ahsUpLvYYd+JATu+eDw22EF2+Bg==",
+                        "storableSigPubKey": "VK7T+3ePZvpU36R9GH0NohhqMVZgLVuErK2u0sDWxlY=",
+                        "storableSigPubKeySignature": "Mf9qksyzRuFElHom9rGeOa0itEjsdWErUi7RRuPMxn3IuSaTnunpEC5KP4aZxQJ5GSohuYZDYlPXiVg53D43CA==",
+                        "storableVaultKeyEncPubKey": "4a48N37WIMmOd5Re8lVQ8PEadFAN+HNL42npZK8Y8Xg=",
+                        "storableVaultKeyEncPubKeySignature": "96wHHSXThmcfGB9sWoKITJTz6tWhSGn2iUf89YNTC5DkDV7sfiuam/Xsizw5GOB6bt8U7khx7BqG821p1Rn2CA==",
+                        "storableProfileSeedEncPubKey": "M9+txOUkZGvi0Xl8CT7Cld2RmS91YvNAqIIqnpjyrSE=",
+                        "storableProfileSeedEncPubKeySignature": "mjP7ndt9cPEENwNIR18LhEtGtthsVusp6h+E32FlsZu4VNj6sFkQQqejvsl9wdj/+S1+KPzAa20RUS/SU8zdDw==",
+                        "authenticatorLocks": [],
+                        "email": "",
+                        "unverifiedEmail": ""
+                      },
+                      "trialEndDate": "2026-10-09T00:56:03.704052Z",
+                      "licenseType": "LICENSE_TYPE_NONE",
+                      "parentOrganizationAdminProfileId": "",
+                      "entraPreferUserPrincipalName": false,
+                      "billingOrganizationId": "",
+                      "entraSettings": ""
+                    },
+                    "adminProfileId": "7dc293a0-3852-4ae2-bc38-8e5487825c93",
+                    "verifiedDomain": "",
+                    "restrictPersonalLogins": false,
+                    "organizationType": "ORGANIZATION_TYPE_COMPANY",
+                    "childOrganizationManagementEnable": false,
+                    "passwordPolicy": "{\"type\": \"none\", \"changeTime\": \"2026-09-09T00:56:03Z\"}",
+                    "isDelegatedAdmin": false,
+                    "clientSettings": "",
+                    "unlockTimeLimit": {
+                      "enabled": false,
+                      "minutes": 0
+                    },
+                    "requiredMaintenanceTasks": [],
+                    "serviceUserEnable": false,
+                    "entraUserId": "",
+                    "profileChildOrganizationManagementShow": false,
+                    "roleId": "4e0b6791-83cb-4547-ba2c-7a6d25fc6dd1",
+                    "roles": [
+                      {
+                        "id": "49bb1245-85eb-489c-94de-b26fb1c52154",
+                        "roleType": "ROLE_TYPE_USER",
+                        "customName": "",
+                        "isPrivileged": false,
+                        "permissions": {
+                          "adminCanManageOrganization": false,
+                          "canCreateTeams": true,
+                          "exportVaults": "EXPORT_PERMISSION_NONE",
+                          "adminCanChangeSettings": false,
+                          "canViewAuditlog": false,
+                          "canChangePlan": false,
+                          "canViewMonitoring": false,
+                          "canAccessPersonalVault": true,
+                          "childOrganizationAccess": "CHILD_ORGANIZATION_ACCESS_NONE",
+                          "canCreateChildOrganizations": false,
+                          "adminCanViewForeignPersonalVaults": false,
+                          "adminCanAssignTeamPermissionOther": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_NONE",
+                          "adminCanAssignTeamPermissionSelf": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_NONE",
+                          "canConnectUsers": false,
+                          "canViewUsers": false
+                        },
+                        "changedAt": "2026-09-09T00:56:03.705042Z"
+                      },
+                      {
+                        "id": "4e0b6791-83cb-4547-ba2c-7a6d25fc6dd1",
+                        "roleType": "ROLE_TYPE_ADMIN",
+                        "customName": "",
+                        "isPrivileged": true,
+                        "permissions": {
+                          "adminCanManageOrganization": true,
+                          "canCreateTeams": true,
+                          "exportVaults": "EXPORT_PERMISSION_ADMIN_ALL_ORGANIZATION_TEAMS",
+                          "adminCanChangeSettings": true,
+                          "canViewAuditlog": true,
+                          "canChangePlan": true,
+                          "canViewMonitoring": true,
+                          "canAccessPersonalVault": true,
+                          "childOrganizationAccess": "CHILD_ORGANIZATION_ACCESS_ADMIN_MANAGE",
+                          "canCreateChildOrganizations": true,
+                          "adminCanViewForeignPersonalVaults": true,
+                          "adminCanAssignTeamPermissionOther": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "adminCanAssignTeamPermissionSelf": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "canConnectUsers": true,
+                          "canViewUsers": true
+                        },
+                        "changedAt": "2026-09-09T00:56:03.705042Z"
+                      },
+                      {
+                        "id": "9785e5f6-ef49-47ef-bcaa-f2b86e9c7530",
+                        "roleType": "ROLE_TYPE_SERVICE",
+                        "customName": "",
+                        "isPrivileged": true,
+                        "permissions": {
+                          "adminCanManageOrganization": true,
+                          "canCreateTeams": true,
+                          "exportVaults": "EXPORT_PERMISSION_ADMIN_ALL_ORGANIZATION_TEAMS",
+                          "adminCanChangeSettings": true,
+                          "canViewAuditlog": true,
+                          "canChangePlan": true,
+                          "canViewMonitoring": true,
+                          "canAccessPersonalVault": false,
+                          "childOrganizationAccess": "CHILD_ORGANIZATION_ACCESS_ADMIN_MANAGE",
+                          "canCreateChildOrganizations": true,
+                          "adminCanViewForeignPersonalVaults": true,
+                          "adminCanAssignTeamPermissionOther": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "adminCanAssignTeamPermissionSelf": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "canConnectUsers": true,
+                          "canViewUsers": true
+                        },
+                        "changedAt": "2026-09-09T00:56:03.705042Z"
+                      },
+                      {
+                        "id": "6684982e-d622-4d2a-a013-43d2a247ce11",
+                        "roleType": "ROLE_TYPE_DELEGATED_ADMIN",
+                        "customName": "",
+                        "isPrivileged": true,
+                        "permissions": {
+                          "adminCanManageOrganization": true,
+                          "canCreateTeams": true,
+                          "exportVaults": "EXPORT_PERMISSION_ADMIN_ALL_ORGANIZATION_TEAMS",
+                          "adminCanChangeSettings": true,
+                          "canViewAuditlog": true,
+                          "canChangePlan": true,
+                          "canViewMonitoring": true,
+                          "canAccessPersonalVault": false,
+                          "childOrganizationAccess": "CHILD_ORGANIZATION_ACCESS_ADMIN_MANAGE",
+                          "canCreateChildOrganizations": true,
+                          "adminCanViewForeignPersonalVaults": true,
+                          "adminCanAssignTeamPermissionOther": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "adminCanAssignTeamPermissionSelf": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "canConnectUsers": true,
+                          "canViewUsers": true
+                        },
+                        "changedAt": "2026-09-09T00:56:03.705042Z"
+                      }
+                    ],
+                    "roleManagementEnable": false,
+                    "monitoringEnable": false
+                  }
+                ],
+                "syncVersion": 36513032,
+                "profiles": [
+                  {
+                    "id": "9d9ef526-ca0a-4993-bdee-2155eafb701c",
+                    "profileType": "PROFILE_TYPE_PREFERENCES",
+                    "keyGenerationId": "98d29781-e2eb-4d90-9572-c053c750f33c",
+                    "organizationId": "",
+                    "highSecurityIdentitySigPubKey": "P6vPeEWeKAllUQWdmKM5BmVd6zqh9Dr2EmSN8IRcnsM=",
+                    "highSecurityVaultKeyEncPubKey": "k7VkfLAjvaF/pBck89bIJVtVEglr5OMdM9TObNFtZDY=",
+                    "highSecurityVaultKeyEncPubKeySignature": "DCmZ3d2PQ7wpdxW2u4mPYy5i9cTOB3+1bZvj56NkL4rYYPKopX99OxteUNFrxC7dvJx16sNv3FciPgtuTCNRDg==",
+                    "highSecurityProfileSeedEncPubKey": "uzPX/BQ9e6Gixqv2e5JFG8i6fcjNbZpFg1p0l5ExwH8=",
+                    "highSecurityProfileSeedEncPubKeySignature": "BdnHkWW4Z2TtxB7igQ/GJtUidB4RAUY5wJKDOHDC7uzGvgpTJhpeDUFh7l/sxpate5sQ6T0xi7Qe9SJKX8g/DA==",
+                    "storableSigPubKey": "cXh9wqjCmRSPEYgvtOqk2b+y/eK28+zXLZ/2GBSsFF4=",
+                    "storableSigPubKeySignature": "QINSF+gXYaMteVUNmxNILf+TkBmRX5gv/ape3baL3So8JVcjGGbLncn2Yrkgw+SZ0YIlzPHlDDtq8iNtkPc9Cw==",
+                    "storableVaultKeyEncPubKey": "l7tM5f+mYADZeOm48lyH6tKAiPi731t5NwZf8ajWABI=",
+                    "storableVaultKeyEncPubKeySignature": "LI5ZSkZIo3rw5C0nqMGOhcJOipPKXQw1ZmK4g1dDRCHUVh/MwxPXNYN9h3xb0GPgCz2na6hXDZr1ve9s3mopBw==",
+                    "storableProfileSeedEncPubKey": "sVhlm9A7X/FCaP+z+1y5jiB5fHNZGj8F5GNqK7M7WVo=",
+                    "storableProfileSeedEncPubKeySignature": "70dtkYtLV01aqY+K1eZ+nWOPHWyhP+zOJaKnprrG1PwVxfsWIIubTRW5+18dOS9p33eGEl2GKTMt9nLTKOWIBA==",
+                    "authenticatorLocks": [
+                      {
+                        "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                        "encryptedHighSecurityProfileSeed": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGUKYUCbHd0DJemxa3AOcZ6XcsBwALG9d4bpB8ZT0gSV1rBReqbRWnM9qXP/z5JVGeDlLFuKcvWIlfFc+bvxqKFsMFJDiV3CYCCbUQAQOqk9U=",
+                        "encryptedStorableProfileSeed": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEXf7dO2vUf2+ijuFdlp1bsOpTd01Ii9r53xxuASSz7yIzk7kRKpB+ye/j1/EENXmz+O0iZdsujAf7s2KQ6cMAJ3+/arf/Jz9VdD6y2o0s6Bo=",
+                        "profileId": "",
+                        "profileKeyGenerationId": ""
+                      }
+                    ],
+                    "email": "",
+                    "unverifiedEmail": ""
+                  },
+                  {
+                    "id": "93419888-1951-4ec5-9e87-dc942c35dfd9",
+                    "profileType": "PROFILE_TYPE_INBOX",
+                    "keyGenerationId": "17a9c000-0411-4526-9353-b8a268b88847",
+                    "organizationId": "",
+                    "highSecurityIdentitySigPubKey": "F/nQ08+IsepUPwX2Qduv/RVKRBOs96qZn+95avWLs28=",
+                    "highSecurityVaultKeyEncPubKey": "sNUEcbvEWa/lLHoI9XMjol9cJ270FHEYgqflJmJo9yI=",
+                    "highSecurityVaultKeyEncPubKeySignature": "aP1HArnOZ6jEaf0ToqyJTWDLQ2Wl8bvvJo43AQMyqrsnmmtRzGl+PSZ21etT5FxVdHaDSF1Vvt0TWILsyV0fAw==",
+                    "highSecurityProfileSeedEncPubKey": "SK9ENZVjkLAVGzq+2xgMnIYMHLYTYvCsymdVJaOCtww=",
+                    "highSecurityProfileSeedEncPubKeySignature": "WkXCQFExwfFd+XN5FMbBW6+ILgfURvCGyGbdciLx1O5hnGCxR8fxVmlgZRW4TDqx+RWEJVnha24pNSZLFdkiAw==",
+                    "storableSigPubKey": "becAQ9PP0BvZluiFaITtxjjl7yj/SC829y8kZnO1rSg=",
+                    "storableSigPubKeySignature": "XrfcNxCUtUR3msEzVNybnKEQl63HM0jqmpMDzeArWxTGRmGjHXmHRkEgRRlsWTMILATmieZtHrfhDqHviXR8AQ==",
+                    "storableVaultKeyEncPubKey": "l4ImkF47T9hrfNi/j7r39q+evbwQZCunMj8L8pQbAAk=",
+                    "storableVaultKeyEncPubKeySignature": "Eg/aIYGCFFvqC3O/xl9phK8yQdb+lUoQFjCrNIMIok+zWi5KUTJ7TCI4zqcXykJXoYIJz6TpQwrESxc6NRdhDQ==",
+                    "storableProfileSeedEncPubKey": "rxkgloOsYyHrlhLI03fmUQGgIEsm+/VN40pt+lnCDSM=",
+                    "storableProfileSeedEncPubKeySignature": "frUAWFnigkQanKD+YZH1cJoZBbUM8Y6QGnWJh7rNPJjGe1FjVWPxYCWt0HWPGjSt3T9WaC2oqmZPqgdPv8z1Cg==",
+                    "authenticatorLocks": [
+                      {
+                        "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                        "encryptedHighSecurityProfileSeed": "CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKV9tLNZ8jrl4Ubk4lEgVnBHIlBjSMFQwUdT0Mkz0E1CG4wqJs/3f+xlO6j1EQqWTyvXdYiUsNTnJV+xuW1lfv9o5lsk84ZySthjKjOJiArzE=",
+                        "encryptedStorableProfileSeed": "CAgICAgICAgICAgICAgICAgICAgICAgIE75P6uryBMf9M1j8nAByGIHRdCeBKCJ+xnTzf3/pe21HxvZkenoyntQxDqYXVllSPkYHo1mOwmfiDHVZKYQrpYm7iWfbu2Hg1IkdpC6Fbvo=",
+                        "profileId": "",
+                        "profileKeyGenerationId": ""
+                      }
+                    ],
+                    "email": "",
+                    "unverifiedEmail": ""
+                  },
+                  {
+                    "id": "b78ce94d-3f5c-484d-ad01-427347c5e29c",
+                    "profileType": "PROFILE_TYPE_PRIVATE",
+                    "keyGenerationId": "afe5cbe5-1a74-4cad-a9a2-49994e6ddd79",
+                    "organizationId": "",
+                    "highSecurityIdentitySigPubKey": "EKuSPUNa+z74bYsRAjb2av7lASCC8ap7oawdb8IbYfU=",
+                    "highSecurityVaultKeyEncPubKey": "Q/o3o0IzC9x2IORG5euTKf4NmizRsYcTR0jMPHdITDo=",
+                    "highSecurityVaultKeyEncPubKeySignature": "GpZyxNZjmAXv3MuAvb8RVanJoBx+0hhhf3JF8vUEZohJc6w/ne2alRCvb5TZW3L2xAnJVoqJbpSYOTSQ7/s8CA==",
+                    "highSecurityProfileSeedEncPubKey": "K4D1KSRmgVdMfgqaXTRP9BWphTsLsdFprMT/PuOGeE4=",
+                    "highSecurityProfileSeedEncPubKeySignature": "ZeKNjSHU8uGU/4b79Qk3Jtx/D9XTSTxZQAEFzjxp8LCRrYyLyVLSrR+iQGZQopbi2uJhfj4jLMZZUSBcexaYCA==",
+                    "storableSigPubKey": "L+fgq09DVfmwEjgBNi/VS1xu9+UoPB1LM3FuizPEMAY=",
+                    "storableSigPubKeySignature": "kZXBaA0ap+xlfP7LLI3cmkMGzsucGuAFFPDca1XWpc5irSCGGRSjy0Tk6hBOptzdAgAaZsugqdB4X8gzC5pqCQ==",
+                    "storableVaultKeyEncPubKey": "H/gpGpt9fbsYLTp75ThUddXFZPXCx0KKVMGbPurWgWU=",
+                    "storableVaultKeyEncPubKeySignature": "e0++dB+dcWija3eIvs8Wqn8zJkW2JrOo37VS6H5s+mE6ezXXKkUMaAmVGKwpi6zeeNxYsqPeGheJccJgdMzbCA==",
+                    "storableProfileSeedEncPubKey": "clLIgFwFnDlnALniQM3wVy5jmV3a+FTWD8I/scN4Cyw=",
+                    "storableProfileSeedEncPubKeySignature": "UrMaP3jrl7Ulg6LQFSwAWsdOkap/O+x0f8xUp8raOy8gHLr3y0emaeFsGEU9R4koAFfA4JDOdCaT5pMkxXWkCw==",
+                    "authenticatorLocks": [
+                      {
+                        "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                        "encryptedHighSecurityProfileSeed": "Dg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OsweuhmDvrtTWpl9mQIlokupKHwB1VVxInRMSouFnfCiWczOHTHvaIEphRkLe90+Trpa27/Y2/43uae3KJqT6DFeN1GISDtTkmvGegIKkrvs=",
+                        "encryptedStorableProfileSeed": "DAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMc7LYt2qptTZgAyvI9di+46OuTjs6f9Sa3oH3NHo0qmgVcFhtRJRWjiODNh/pzZbyZlJWUC6j/cFbnHJqSIrEDPXHRkRcT715fGNup1AiraQ=",
+                        "profileId": "",
+                        "profileKeyGenerationId": ""
+                      }
+                    ],
+                    "email": "fixture@example.com",
+                    "unverifiedEmail": ""
+                  },
+                  {
+                    "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+                    "profileType": "PROFILE_TYPE_ORGANIZATION",
+                    "keyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                    "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "highSecurityIdentitySigPubKey": "HHjYUs2YLob6pLZaSjgEvChHGiwEnLNjyTl3KQOdGBs=",
+                    "highSecurityVaultKeyEncPubKey": "ywxQ5EKmYMFp0xBKK3l0PdHzGMhGc3zpLtM1wbxQXRI=",
+                    "highSecurityVaultKeyEncPubKeySignature": "3NVZHnez58iTGuycj8WFP1KXJO5GyCLsAzgusdPIaASh5J+I40vT+SQSkYgcd+8uQBqsKQJc/t3JSurqdP1VAw==",
+                    "highSecurityProfileSeedEncPubKey": "1Y/heOeJ39KZypo651mx3kXPjY6skIYyRjCMvncLBwg=",
+                    "highSecurityProfileSeedEncPubKeySignature": "EJjmvoY07jw4tGK+RltfPyElM5J578/Tpmvm3SPpkIJiG0+mP9Z/2XEovuM6qFUANUYXqtv0Y9MjJFlJaaNrBg==",
+                    "storableSigPubKey": "FXm2gVdpCrEBoEZ0U2FHOwaIVl4zaVSbzi6mflFX3yc=",
+                    "storableSigPubKeySignature": "r8/ENJrLersvwck13ojXFu0t3JzHnDDG7J8BYmC/4S5wbuLb0Uf5gdS4EbNSZM3B1uq2pTGgKVNMbLqJ+AdzAg==",
+                    "storableVaultKeyEncPubKey": "Pp04D2iVpV4d4hNwoH2ZtGS7HtL2FACiqU7+5iMQqyc=",
+                    "storableVaultKeyEncPubKeySignature": "AskwOlsbC9PiB3+o/So35Pfv47PyJm26Ixt1ql48e01PofOq36NyB4Op6KYB40qEoIOaYwIHc6spgP5e9aKjAg==",
+                    "storableProfileSeedEncPubKey": "6oCOdRYKDH8ZuQ4q34o7U0vgQtmbxfWFQL/POEg8nUk=",
+                    "storableProfileSeedEncPubKeySignature": "8ZwQ+eLDU2CRrhyK5t1Q7AwAw8USjBQUMS9XCmr5jX0wWiVgbSdZbCW+BOSxB9+3g5c57o/On+doubCPbrcMBQ==",
+                    "authenticatorLocks": [
+                      {
+                        "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                        "encryptedHighSecurityProfileSeed": "EhISEhISEhISEhISEhISEhISEhISEhISe06Qm75//kTEZaIgA31gjuNYl9Me+XLwf3SJLLD3PxM/vvo4c+VxVDmlNEbIDbHyyoVvNi80a27H00tXBwyAV2Px9nrLc250RIwmjyUyuh0=",
+                        "encryptedStorableProfileSeed": "EBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQfoHpFuOvzbMe902NuSPyuhW4KhqmWU6iKNzfJ9e1T2w74L/epUJkqcfCoOvdqPTB5tf9BH7/McbBS7705qO11JwypS8WdRyPpr6G2ueMUjY=",
+                        "profileId": "",
+                        "profileKeyGenerationId": ""
+                      }
+                    ],
+                    "email": "fixture@example.com",
+                    "unverifiedEmail": ""
+                  }
+                ],
+                "relatedProfiles": [
+                  {
+                    "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+                    "email": "fixture@example.com"
+                  },
+                  {
+                    "id": "b78ce94d-3f5c-484d-ad01-427347c5e29c",
+                    "email": "fixture@example.com"
+                  }
+                ],
+                "maintenanceSettings": {
+                  "allowedTasks": [
+                    "MAINTENANCE_TASK_ORGANIZATION_PRELIMINARY_PROFILES_V3",
+                    "MAINTENANCE_TASK_ENABLE_PRF_OPPORTUNISTICALLY_V1",
+                    "MAINTENANCE_TASK_ORGANIZATION_PERFORM_MAINTENANCE_IF_DISABLED_V1",
+                    "MAINTENANCE_TASK_TEAM_SYNC_MEMBERS_V1",
+                    32,
+                    "MAINTENANCE_TASK_TEAM_SYNC_MEMBERS_BACKEND_V2",
+                    "MAINTENANCE_TASK_PROCESS_VAULT_MESSAGES_V2",
+                    "MAINTENANCE_TASK_ORGANIZATION_ENTRA_SYNC_V2",
+                    "MAINTENANCE_TASK_CREATE_DELEGATED_ADMINS_VAULT_V2",
+                    "MAINTENANCE_TASK_LOGIN_SUMMARY_V1",
+                    "MAINTENANCE_TASK_PASSWORD_POLICY_CHECK_V2"
+                  ]
+                },
+                "preliminaryProfiles": [],
+                "tokenRefreshNeeded": false,
+                "clientOutdated": true,
+                "leakedPasswordsChangeTime": "2026-06-23T14:23:14Z"
+              },
+              "tokenVersion": 3
+            }
+          ]
+        }
+      ],
+      "stdout": {
+        "unstable": "recovery's JSON shape is not a compatibility promise until M6",
+        "userId": "c0500acb-2b47-4495-8f1a-3706dc605c5e",
+        "sessionId": "88d046d5-ee38-4be4-aa5c-24ce6e805980",
+        "unlockedUntil": "2026-09-10T00:00:00.000Z",
+        "disconnected": [
+          {
+            "id": "52bf9e45-3461-47f6-9e6b-a0865fbfaf85",
+            "kind": "Push"
+          }
+        ]
+      }
+    },
+    {
+      "argv": [
+        "doctor",
+        "--format",
+        "json"
+      ],
+      "exit": 0,
+      "calls": [
+        {
+          "method": "/domain.SyncService/Sync",
+          "responses": [
+            {
+              "syncUpdate": {
+                "sessions": [
+                  {
+                    "id": "88d046d5-ee38-4be4-aa5c-24ce6e805980",
+                    "lastUsedAt": "2026-09-09T10:23:59Z",
+                    "unlockedAt": "2026-09-09T10:23:59.068370Z",
+                    "unlockedUntil": "2026-09-10T00:00:00Z",
+                    "createdAt": "2026-09-09T10:23:59Z",
+                    "clientSettings": "",
+                    "sessionType": "SESSION_TYPE_BACKUP_CODE",
+                    "enabledProfileIds": [],
+                    "unlockTimeLimit": {
+                      "enabled": true,
+                      "minutes": 480
+                    },
+                    "unlockTimeLimitMinutes": 480
+                  }
+                ],
+                "vaults": [
+                  {
+                    "id": "2ec7a7ff-5b23-4cbd-afbf-cbb05c976876",
+                    "commitId": "89dde026-d144-4a8e-a1d5-e9c7f399eab9",
+                    "generationId": "bb7ef721-b883-4de1-ae7b-f85593f55639",
+                    "vaultType": "VAULT_TYPE_META",
+                    "associatedVaultId": "",
+                    "organizationId": "",
+                    "profiles": [
+                      {
+                        "id": "9d9ef526-ca0a-4993-bdee-2155eafb701c"
+                      }
+                    ],
+                    "profileKeyGenerationId": "98d29781-e2eb-4d90-9572-c053c750f33c",
+                    "messagePublicKey": "70EHo3AOeNPCMbV7Bm4xBRwd9WZv29ZOO+mJ/7ILUXI=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_NONE",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  },
+                  {
+                    "id": "6e577b16-1303-47c3-8579-37e59cb71276",
+                    "commitId": "0ca99e10-fd09-44c4-b766-956428e23ba0",
+                    "generationId": "2f1df2c8-7db3-4371-afd1-b167c14a0cf5",
+                    "vaultType": "VAULT_TYPE_PRIVATE",
+                    "associatedVaultId": "",
+                    "organizationId": "",
+                    "profiles": [
+                      {
+                        "id": "b78ce94d-3f5c-484d-ad01-427347c5e29c"
+                      }
+                    ],
+                    "profileKeyGenerationId": "afe5cbe5-1a74-4cad-a9a2-49994e6ddd79",
+                    "messagePublicKey": "bDU1DVdDjVVJuZPdlr4y4PhZx2DYnVqmvEGI0M/JEgg=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_NONE",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  },
+                  {
+                    "id": "52300857-0e3a-4f4a-b3b3-86c3cef3d9d5",
+                    "commitId": "3eb60d24-0833-4d63-8fb1-60f4e0731468",
+                    "generationId": "7cc8dc81-351e-4470-8a53-8037bc563f00",
+                    "vaultType": "VAULT_TYPE_ORGANIZATION_PERSONAL",
+                    "associatedVaultId": "",
+                    "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "profiles": [
+                      {
+                        "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d"
+                      },
+                      {
+                        "id": "7dc293a0-3852-4ae2-bc38-8e5487825c93"
+                      }
+                    ],
+                    "profileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                    "messagePublicKey": "rgEh0elYR0OZlWVeIWZJGA4jTHJoWQEz153/sN/eR34=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_NONE",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  },
+                  {
+                    "id": "0f176b78-18e3-4609-82b6-e1228673ade4",
+                    "commitId": "942295bd-a127-4c09-953f-8ffe48b189be",
+                    "generationId": "48305ecd-bfed-4259-b34e-0096ed69cbd4",
+                    "vaultType": "VAULT_TYPE_TEAM_META",
+                    "associatedVaultId": "",
+                    "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "profiles": [
+                      {
+                        "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d"
+                      },
+                      {
+                        "id": "7dc293a0-3852-4ae2-bc38-8e5487825c93"
+                      }
+                    ],
+                    "profileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                    "messagePublicKey": "lLs2iMVNl8+IgY1WqLaWfT+fXolAp+x8Rxl+yOJacDo=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_ALL_ORGANIZATION_PROFILES",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  },
+                  {
+                    "id": "111bc97a-8949-4e6b-a7e2-8cb534774db8",
+                    "commitId": "5c59a6cc-b257-40df-b930-03b1c6e55f06",
+                    "generationId": "0a038bca-0d53-44fc-a724-648de340e3a7",
+                    "vaultType": "VAULT_TYPE_TEAM",
+                    "associatedVaultId": "0f176b78-18e3-4609-82b6-e1228673ade4",
+                    "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "profiles": [
+                      {
+                        "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d"
+                      },
+                      {
+                        "id": "7dc293a0-3852-4ae2-bc38-8e5487825c93"
+                      }
+                    ],
+                    "profileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                    "messagePublicKey": "51c7xRvwcFuoK+Fmo+39LOukUG6iPSozlTXLV+eueTk=",
+                    "hasMessagesQueued": false,
+                    "inboxSlug": "",
+                    "adminProfileKeyGenerationId": "",
+                    "dirty": false,
+                    "inboxEnabled": false,
+                    "memberSyncMode": "VAULT_MEMBER_SYNC_MODE_ALL_ORGANIZATION_PROFILES",
+                    "entraGroupId": "",
+                    "requiredMaintenanceTasks": [],
+                    "regenerateOnSync": false
+                  }
+                ],
+                "channels": [],
+                "sessionUnlock": {
+                  "encryptedSecret": "FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUGX/CxWfcA+4qrfDthmgdrCTap26DylVYdd075zduUwaBU/ySOUSUq/A/8O12QADdv5jKByw1E+TAejMyB7cCDEsSsSSC8512q/BbOORcQmM=",
+                  "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54"
+                },
+                "achievements": [
+                  "BAE_REGISTER_IOS",
+                  "WEB_SESSION_CREATE",
+                  "WEB_SESSION_UNLOCK",
+                  "COR_STORE_BACKUP_CODE_META_VAULT",
+                  "WEB_ORGANIZATION_CREATE",
+                  "WEB_LOGIN_ADD",
+                  "WEB_LOGIN_ADD_FIRST_MANUAL",
+                  "COR_LOGINS_TOTAL_1",
+                  "BAE_LOGIN_RECOVERY"
+                ],
+                "serverTime": "2026-09-09T10:23:59.248237976Z",
+                "user": {
+                  "serverSideSettings": "",
+                  "authenticatorBlockHash": "6hXr9TltUoCf3lEVGKvNqu4VwYg+WlGgYXHx5nc0qeI=",
+                  "preferredLocale": "en_DE",
+                  "preliminaryEmail": "",
+                  "webauthnCredentials": [],
+                  "userClientSettings": "{}",
+                  "openUserConfirmationIds": [],
+                  "profilesLocked": false
+                },
+                "updatedFields": [
+                  "SU_PROFILES",
+                  "SU_ORGANIZATIONS",
+                  "SU_USER",
+                  "SU_VAULTS",
+                  "SU_SESSIONS",
+                  "SU_ACHIEVEMENTS",
+                  "SU_CHANNELS",
+                  "SU_RELATED_PROFILES",
+                  "SU_MAINTENANCE_SETTINGS"
+                ],
+                "organizations": [
+                  {
+                    "id": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "name": "fixture",
+                    "icon": "",
+                    "superUserId": "a92e621b-2570-46ba-9c47-27068073d1a2",
+                    "profiles": [],
+                    "subscriptionError": "SUBSCRIPTION_ERROR_OK",
+                    "isPreliminary": false,
+                    "auditlogEnable": false,
+                    "adminInfo": {
+                      "entraTenantId": "",
+                      "csvIntegrationActive": false,
+                      "googleWorkspaceIntegrationActive": false,
+                      "adminProfile": {
+                        "id": "7dc293a0-3852-4ae2-bc38-8e5487825c93",
+                        "profileType": "PROFILE_TYPE_ORGANIZATION_ADMIN",
+                        "keyGenerationId": "d0661b2c-20a9-4a3a-94d7-09c0c1517524",
+                        "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                        "highSecurityIdentitySigPubKey": "DhbOvVyiMJze+3Df4rAWgrsg42qDNBmtHPV31G9PS7g=",
+                        "highSecurityVaultKeyEncPubKey": "zvTkPrpx4SBAWoHPJqPioxNpfFdFqNXAXVBCYz7wlS8=",
+                        "highSecurityVaultKeyEncPubKeySignature": "tyYLarsvwo4K54vX70WdpaqP86Ki6PL1LIyXw/JNzrp+CROYeMyZIJJb5raqOLQnjCfF83+5lsMky/VDjSLrDQ==",
+                        "highSecurityProfileSeedEncPubKey": "VWV0VS73Hri0FYGIHIF8ofm0T0wPZB6FV5LicGoPH1w=",
+                        "highSecurityProfileSeedEncPubKeySignature": "OG0Z8I6iKMsPI9CQTlwWPO+8/c6fDBUgp5n4XL+HuDsKbRWTu4rMQBI6xK1ahsUpLvYYd+JATu+eDw22EF2+Bg==",
+                        "storableSigPubKey": "VK7T+3ePZvpU36R9GH0NohhqMVZgLVuErK2u0sDWxlY=",
+                        "storableSigPubKeySignature": "Mf9qksyzRuFElHom9rGeOa0itEjsdWErUi7RRuPMxn3IuSaTnunpEC5KP4aZxQJ5GSohuYZDYlPXiVg53D43CA==",
+                        "storableVaultKeyEncPubKey": "4a48N37WIMmOd5Re8lVQ8PEadFAN+HNL42npZK8Y8Xg=",
+                        "storableVaultKeyEncPubKeySignature": "96wHHSXThmcfGB9sWoKITJTz6tWhSGn2iUf89YNTC5DkDV7sfiuam/Xsizw5GOB6bt8U7khx7BqG821p1Rn2CA==",
+                        "storableProfileSeedEncPubKey": "M9+txOUkZGvi0Xl8CT7Cld2RmS91YvNAqIIqnpjyrSE=",
+                        "storableProfileSeedEncPubKeySignature": "mjP7ndt9cPEENwNIR18LhEtGtthsVusp6h+E32FlsZu4VNj6sFkQQqejvsl9wdj/+S1+KPzAa20RUS/SU8zdDw==",
+                        "authenticatorLocks": [],
+                        "email": "",
+                        "unverifiedEmail": ""
+                      },
+                      "trialEndDate": "2026-10-09T00:56:03.704052Z",
+                      "licenseType": "LICENSE_TYPE_NONE",
+                      "parentOrganizationAdminProfileId": "",
+                      "entraPreferUserPrincipalName": false,
+                      "billingOrganizationId": "",
+                      "entraSettings": ""
+                    },
+                    "adminProfileId": "7dc293a0-3852-4ae2-bc38-8e5487825c93",
+                    "verifiedDomain": "",
+                    "restrictPersonalLogins": false,
+                    "organizationType": "ORGANIZATION_TYPE_COMPANY",
+                    "childOrganizationManagementEnable": false,
+                    "passwordPolicy": "{\"type\": \"none\", \"changeTime\": \"2026-09-09T00:56:03Z\"}",
+                    "isDelegatedAdmin": false,
+                    "clientSettings": "",
+                    "unlockTimeLimit": {
+                      "enabled": false,
+                      "minutes": 0
+                    },
+                    "requiredMaintenanceTasks": [],
+                    "serviceUserEnable": false,
+                    "entraUserId": "",
+                    "profileChildOrganizationManagementShow": false,
+                    "roleId": "4e0b6791-83cb-4547-ba2c-7a6d25fc6dd1",
+                    "roles": [
+                      {
+                        "id": "49bb1245-85eb-489c-94de-b26fb1c52154",
+                        "roleType": "ROLE_TYPE_USER",
+                        "customName": "",
+                        "isPrivileged": false,
+                        "permissions": {
+                          "adminCanManageOrganization": false,
+                          "canCreateTeams": true,
+                          "exportVaults": "EXPORT_PERMISSION_NONE",
+                          "adminCanChangeSettings": false,
+                          "canViewAuditlog": false,
+                          "canChangePlan": false,
+                          "canViewMonitoring": false,
+                          "canAccessPersonalVault": true,
+                          "childOrganizationAccess": "CHILD_ORGANIZATION_ACCESS_NONE",
+                          "canCreateChildOrganizations": false,
+                          "adminCanViewForeignPersonalVaults": false,
+                          "adminCanAssignTeamPermissionOther": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_NONE",
+                          "adminCanAssignTeamPermissionSelf": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_NONE",
+                          "canConnectUsers": false,
+                          "canViewUsers": false
+                        },
+                        "changedAt": "2026-09-09T00:56:03.705042Z"
+                      },
+                      {
+                        "id": "4e0b6791-83cb-4547-ba2c-7a6d25fc6dd1",
+                        "roleType": "ROLE_TYPE_ADMIN",
+                        "customName": "",
+                        "isPrivileged": true,
+                        "permissions": {
+                          "adminCanManageOrganization": true,
+                          "canCreateTeams": true,
+                          "exportVaults": "EXPORT_PERMISSION_ADMIN_ALL_ORGANIZATION_TEAMS",
+                          "adminCanChangeSettings": true,
+                          "canViewAuditlog": true,
+                          "canChangePlan": true,
+                          "canViewMonitoring": true,
+                          "canAccessPersonalVault": true,
+                          "childOrganizationAccess": "CHILD_ORGANIZATION_ACCESS_ADMIN_MANAGE",
+                          "canCreateChildOrganizations": true,
+                          "adminCanViewForeignPersonalVaults": true,
+                          "adminCanAssignTeamPermissionOther": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "adminCanAssignTeamPermissionSelf": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "canConnectUsers": true,
+                          "canViewUsers": true
+                        },
+                        "changedAt": "2026-09-09T00:56:03.705042Z"
+                      },
+                      {
+                        "id": "9785e5f6-ef49-47ef-bcaa-f2b86e9c7530",
+                        "roleType": "ROLE_TYPE_SERVICE",
+                        "customName": "",
+                        "isPrivileged": true,
+                        "permissions": {
+                          "adminCanManageOrganization": true,
+                          "canCreateTeams": true,
+                          "exportVaults": "EXPORT_PERMISSION_ADMIN_ALL_ORGANIZATION_TEAMS",
+                          "adminCanChangeSettings": true,
+                          "canViewAuditlog": true,
+                          "canChangePlan": true,
+                          "canViewMonitoring": true,
+                          "canAccessPersonalVault": false,
+                          "childOrganizationAccess": "CHILD_ORGANIZATION_ACCESS_ADMIN_MANAGE",
+                          "canCreateChildOrganizations": true,
+                          "adminCanViewForeignPersonalVaults": true,
+                          "adminCanAssignTeamPermissionOther": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "adminCanAssignTeamPermissionSelf": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "canConnectUsers": true,
+                          "canViewUsers": true
+                        },
+                        "changedAt": "2026-09-09T00:56:03.705042Z"
+                      },
+                      {
+                        "id": "6684982e-d622-4d2a-a013-43d2a247ce11",
+                        "roleType": "ROLE_TYPE_DELEGATED_ADMIN",
+                        "customName": "",
+                        "isPrivileged": true,
+                        "permissions": {
+                          "adminCanManageOrganization": true,
+                          "canCreateTeams": true,
+                          "exportVaults": "EXPORT_PERMISSION_ADMIN_ALL_ORGANIZATION_TEAMS",
+                          "adminCanChangeSettings": true,
+                          "canViewAuditlog": true,
+                          "canChangePlan": true,
+                          "canViewMonitoring": true,
+                          "canAccessPersonalVault": false,
+                          "childOrganizationAccess": "CHILD_ORGANIZATION_ACCESS_ADMIN_MANAGE",
+                          "canCreateChildOrganizations": true,
+                          "adminCanViewForeignPersonalVaults": true,
+                          "adminCanAssignTeamPermissionOther": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "adminCanAssignTeamPermissionSelf": "MAXIMUM_ASSIGNABLE_VAULT_PERMISSION_ADMIN",
+                          "canConnectUsers": true,
+                          "canViewUsers": true
+                        },
+                        "changedAt": "2026-09-09T00:56:03.705042Z"
+                      }
+                    ],
+                    "roleManagementEnable": false,
+                    "monitoringEnable": false
+                  }
+                ],
+                "syncVersion": 36513032,
+                "profiles": [
+                  {
+                    "id": "9d9ef526-ca0a-4993-bdee-2155eafb701c",
+                    "profileType": "PROFILE_TYPE_PREFERENCES",
+                    "keyGenerationId": "98d29781-e2eb-4d90-9572-c053c750f33c",
+                    "organizationId": "",
+                    "highSecurityIdentitySigPubKey": "P6vPeEWeKAllUQWdmKM5BmVd6zqh9Dr2EmSN8IRcnsM=",
+                    "highSecurityVaultKeyEncPubKey": "k7VkfLAjvaF/pBck89bIJVtVEglr5OMdM9TObNFtZDY=",
+                    "highSecurityVaultKeyEncPubKeySignature": "DCmZ3d2PQ7wpdxW2u4mPYy5i9cTOB3+1bZvj56NkL4rYYPKopX99OxteUNFrxC7dvJx16sNv3FciPgtuTCNRDg==",
+                    "highSecurityProfileSeedEncPubKey": "uzPX/BQ9e6Gixqv2e5JFG8i6fcjNbZpFg1p0l5ExwH8=",
+                    "highSecurityProfileSeedEncPubKeySignature": "BdnHkWW4Z2TtxB7igQ/GJtUidB4RAUY5wJKDOHDC7uzGvgpTJhpeDUFh7l/sxpate5sQ6T0xi7Qe9SJKX8g/DA==",
+                    "storableSigPubKey": "cXh9wqjCmRSPEYgvtOqk2b+y/eK28+zXLZ/2GBSsFF4=",
+                    "storableSigPubKeySignature": "QINSF+gXYaMteVUNmxNILf+TkBmRX5gv/ape3baL3So8JVcjGGbLncn2Yrkgw+SZ0YIlzPHlDDtq8iNtkPc9Cw==",
+                    "storableVaultKeyEncPubKey": "l7tM5f+mYADZeOm48lyH6tKAiPi731t5NwZf8ajWABI=",
+                    "storableVaultKeyEncPubKeySignature": "LI5ZSkZIo3rw5C0nqMGOhcJOipPKXQw1ZmK4g1dDRCHUVh/MwxPXNYN9h3xb0GPgCz2na6hXDZr1ve9s3mopBw==",
+                    "storableProfileSeedEncPubKey": "sVhlm9A7X/FCaP+z+1y5jiB5fHNZGj8F5GNqK7M7WVo=",
+                    "storableProfileSeedEncPubKeySignature": "70dtkYtLV01aqY+K1eZ+nWOPHWyhP+zOJaKnprrG1PwVxfsWIIubTRW5+18dOS9p33eGEl2GKTMt9nLTKOWIBA==",
+                    "authenticatorLocks": [
+                      {
+                        "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                        "encryptedHighSecurityProfileSeed": "GBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY8T/vPvqVmKKiP8dWv2iP6LvX9s+VKLuu87REJojwqzGflMzCj5H4k6pCM/uTao3cPmCOQCjY+zkdnFO5RbznxRkzEaKM9oSa0zjayvTL3Bo=",
+                        "encryptedStorableProfileSeed": "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWvOBZv1sqt6kfPoY6zwyE0+u+BMqEkAlLBStbFa+rF0NUQpxaBepF2uW8dxoUQBEKlfFFjjVcuyd5TwSr2iEyj7NZT2oZkzJeMRp9C8hlDBE=",
+                        "profileId": "",
+                        "profileKeyGenerationId": ""
+                      }
+                    ],
+                    "email": "",
+                    "unverifiedEmail": ""
+                  },
+                  {
+                    "id": "93419888-1951-4ec5-9e87-dc942c35dfd9",
+                    "profileType": "PROFILE_TYPE_INBOX",
+                    "keyGenerationId": "17a9c000-0411-4526-9353-b8a268b88847",
+                    "organizationId": "",
+                    "highSecurityIdentitySigPubKey": "F/nQ08+IsepUPwX2Qduv/RVKRBOs96qZn+95avWLs28=",
+                    "highSecurityVaultKeyEncPubKey": "sNUEcbvEWa/lLHoI9XMjol9cJ270FHEYgqflJmJo9yI=",
+                    "highSecurityVaultKeyEncPubKeySignature": "aP1HArnOZ6jEaf0ToqyJTWDLQ2Wl8bvvJo43AQMyqrsnmmtRzGl+PSZ21etT5FxVdHaDSF1Vvt0TWILsyV0fAw==",
+                    "highSecurityProfileSeedEncPubKey": "SK9ENZVjkLAVGzq+2xgMnIYMHLYTYvCsymdVJaOCtww=",
+                    "highSecurityProfileSeedEncPubKeySignature": "WkXCQFExwfFd+XN5FMbBW6+ILgfURvCGyGbdciLx1O5hnGCxR8fxVmlgZRW4TDqx+RWEJVnha24pNSZLFdkiAw==",
+                    "storableSigPubKey": "becAQ9PP0BvZluiFaITtxjjl7yj/SC829y8kZnO1rSg=",
+                    "storableSigPubKeySignature": "XrfcNxCUtUR3msEzVNybnKEQl63HM0jqmpMDzeArWxTGRmGjHXmHRkEgRRlsWTMILATmieZtHrfhDqHviXR8AQ==",
+                    "storableVaultKeyEncPubKey": "l4ImkF47T9hrfNi/j7r39q+evbwQZCunMj8L8pQbAAk=",
+                    "storableVaultKeyEncPubKeySignature": "Eg/aIYGCFFvqC3O/xl9phK8yQdb+lUoQFjCrNIMIok+zWi5KUTJ7TCI4zqcXykJXoYIJz6TpQwrESxc6NRdhDQ==",
+                    "storableProfileSeedEncPubKey": "rxkgloOsYyHrlhLI03fmUQGgIEsm+/VN40pt+lnCDSM=",
+                    "storableProfileSeedEncPubKeySignature": "frUAWFnigkQanKD+YZH1cJoZBbUM8Y6QGnWJh7rNPJjGe1FjVWPxYCWt0HWPGjSt3T9WaC2oqmZPqgdPv8z1Cg==",
+                    "authenticatorLocks": [
+                      {
+                        "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                        "encryptedHighSecurityProfileSeed": "HBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc4C8SaAkWwIoNjgHonfyo/FGsD7cTpgJcp04ZnIIzImKfNhl+gS9772JwkwOWo2MOykNQDHRKdg/lKvOpc031zlUZqNjEOlMPwq7h1m5qkNQ=",
+                        "encryptedStorableProfileSeed": "GhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoalzrCWIUPHKAGMLeqpc2at27ykmXrgQYWGLeHTPoroVYCi2jNSULrcf8XChO8mn8K5Nkpic9NNG6LI0wWDVWdLVGbkDMFIM9WGK286a5ZI20=",
+                        "profileId": "",
+                        "profileKeyGenerationId": ""
+                      }
+                    ],
+                    "email": "",
+                    "unverifiedEmail": ""
+                  },
+                  {
+                    "id": "b78ce94d-3f5c-484d-ad01-427347c5e29c",
+                    "profileType": "PROFILE_TYPE_PRIVATE",
+                    "keyGenerationId": "afe5cbe5-1a74-4cad-a9a2-49994e6ddd79",
+                    "organizationId": "",
+                    "highSecurityIdentitySigPubKey": "EKuSPUNa+z74bYsRAjb2av7lASCC8ap7oawdb8IbYfU=",
+                    "highSecurityVaultKeyEncPubKey": "Q/o3o0IzC9x2IORG5euTKf4NmizRsYcTR0jMPHdITDo=",
+                    "highSecurityVaultKeyEncPubKeySignature": "GpZyxNZjmAXv3MuAvb8RVanJoBx+0hhhf3JF8vUEZohJc6w/ne2alRCvb5TZW3L2xAnJVoqJbpSYOTSQ7/s8CA==",
+                    "highSecurityProfileSeedEncPubKey": "K4D1KSRmgVdMfgqaXTRP9BWphTsLsdFprMT/PuOGeE4=",
+                    "highSecurityProfileSeedEncPubKeySignature": "ZeKNjSHU8uGU/4b79Qk3Jtx/D9XTSTxZQAEFzjxp8LCRrYyLyVLSrR+iQGZQopbi2uJhfj4jLMZZUSBcexaYCA==",
+                    "storableSigPubKey": "L+fgq09DVfmwEjgBNi/VS1xu9+UoPB1LM3FuizPEMAY=",
+                    "storableSigPubKeySignature": "kZXBaA0ap+xlfP7LLI3cmkMGzsucGuAFFPDca1XWpc5irSCGGRSjy0Tk6hBOptzdAgAaZsugqdB4X8gzC5pqCQ==",
+                    "storableVaultKeyEncPubKey": "H/gpGpt9fbsYLTp75ThUddXFZPXCx0KKVMGbPurWgWU=",
+                    "storableVaultKeyEncPubKeySignature": "e0++dB+dcWija3eIvs8Wqn8zJkW2JrOo37VS6H5s+mE6ezXXKkUMaAmVGKwpi6zeeNxYsqPeGheJccJgdMzbCA==",
+                    "storableProfileSeedEncPubKey": "clLIgFwFnDlnALniQM3wVy5jmV3a+FTWD8I/scN4Cyw=",
+                    "storableProfileSeedEncPubKeySignature": "UrMaP3jrl7Ulg6LQFSwAWsdOkap/O+x0f8xUp8raOy8gHLr3y0emaeFsGEU9R4koAFfA4JDOdCaT5pMkxXWkCw==",
+                    "authenticatorLocks": [
+                      {
+                        "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                        "encryptedHighSecurityProfileSeed": "ICAgICAgICAgICAgICAgICAgICAgICAgK9OVBGEgLiQvK66DwHcRnVukrjAFg9frt5I7Im2FM0Mszli4nuh+Ento3REOvA2M0ry6iNy3BSQPMiko9LmMS45DBznHMCXDaEhnS9nXH1Y=",
+                        "encryptedStorableProfileSeed": "Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eUd3zyzakL989aoHfyq2p/heBiqFFVIoI5R8tc+lFJHgXCUkLXYH31bFdOgyMzR+YqiDX5TjCJRF6tD3lQo7+JH7LqkbNtaM11bHnpperO6A=",
+                        "profileId": "",
+                        "profileKeyGenerationId": ""
+                      }
+                    ],
+                    "email": "fixture@example.com",
+                    "unverifiedEmail": ""
+                  },
+                  {
+                    "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+                    "profileType": "PROFILE_TYPE_ORGANIZATION",
+                    "keyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                    "organizationId": "89b38b5e-bc2f-4682-a5ee-044025fd029b",
+                    "highSecurityIdentitySigPubKey": "HHjYUs2YLob6pLZaSjgEvChHGiwEnLNjyTl3KQOdGBs=",
+                    "highSecurityVaultKeyEncPubKey": "ywxQ5EKmYMFp0xBKK3l0PdHzGMhGc3zpLtM1wbxQXRI=",
+                    "highSecurityVaultKeyEncPubKeySignature": "3NVZHnez58iTGuycj8WFP1KXJO5GyCLsAzgusdPIaASh5J+I40vT+SQSkYgcd+8uQBqsKQJc/t3JSurqdP1VAw==",
+                    "highSecurityProfileSeedEncPubKey": "1Y/heOeJ39KZypo651mx3kXPjY6skIYyRjCMvncLBwg=",
+                    "highSecurityProfileSeedEncPubKeySignature": "EJjmvoY07jw4tGK+RltfPyElM5J578/Tpmvm3SPpkIJiG0+mP9Z/2XEovuM6qFUANUYXqtv0Y9MjJFlJaaNrBg==",
+                    "storableSigPubKey": "FXm2gVdpCrEBoEZ0U2FHOwaIVl4zaVSbzi6mflFX3yc=",
+                    "storableSigPubKeySignature": "r8/ENJrLersvwck13ojXFu0t3JzHnDDG7J8BYmC/4S5wbuLb0Uf5gdS4EbNSZM3B1uq2pTGgKVNMbLqJ+AdzAg==",
+                    "storableVaultKeyEncPubKey": "Pp04D2iVpV4d4hNwoH2ZtGS7HtL2FACiqU7+5iMQqyc=",
+                    "storableVaultKeyEncPubKeySignature": "AskwOlsbC9PiB3+o/So35Pfv47PyJm26Ixt1ql48e01PofOq36NyB4Op6KYB40qEoIOaYwIHc6spgP5e9aKjAg==",
+                    "storableProfileSeedEncPubKey": "6oCOdRYKDH8ZuQ4q34o7U0vgQtmbxfWFQL/POEg8nUk=",
+                    "storableProfileSeedEncPubKeySignature": "8ZwQ+eLDU2CRrhyK5t1Q7AwAw8USjBQUMS9XCmr5jX0wWiVgbSdZbCW+BOSxB9+3g5c57o/On+doubCPbrcMBQ==",
+                    "authenticatorLocks": [
+                      {
+                        "authenticatorId": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                        "encryptedHighSecurityProfileSeed": "JCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkmkUDqYqxD+jTVMnELL0MnXlE9S59FNjqWXdefcnjv0s6kW2igsNOhSSJ0h9mOZoPAkuSPeLbuX/AmgU/2AUgZapxk/LTslDx3jFkn6vr0aw=",
+                        "encryptedStorableProfileSeed": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIifTSkgV+muYJTXmCvO9m0lVaBYIDxZB/4HSt8iugmikTP4gWmCLF/lJNnLXk7FvsgXWVq/FTKpf/7Zr3RV5oKcZ36ouZWuUF2jKFUdpMcOwg=",
+                        "profileId": "",
+                        "profileKeyGenerationId": ""
+                      }
+                    ],
+                    "email": "fixture@example.com",
+                    "unverifiedEmail": ""
+                  }
+                ],
+                "relatedProfiles": [
+                  {
+                    "id": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+                    "email": "fixture@example.com"
+                  },
+                  {
+                    "id": "b78ce94d-3f5c-484d-ad01-427347c5e29c",
+                    "email": "fixture@example.com"
+                  }
+                ],
+                "maintenanceSettings": {
+                  "allowedTasks": [
+                    "MAINTENANCE_TASK_ORGANIZATION_PRELIMINARY_PROFILES_V3",
+                    "MAINTENANCE_TASK_ENABLE_PRF_OPPORTUNISTICALLY_V1",
+                    "MAINTENANCE_TASK_ORGANIZATION_PERFORM_MAINTENANCE_IF_DISABLED_V1",
+                    "MAINTENANCE_TASK_TEAM_SYNC_MEMBERS_V1",
+                    32,
+                    "MAINTENANCE_TASK_TEAM_SYNC_MEMBERS_BACKEND_V2",
+                    "MAINTENANCE_TASK_PROCESS_VAULT_MESSAGES_V2",
+                    "MAINTENANCE_TASK_ORGANIZATION_ENTRA_SYNC_V2",
+                    "MAINTENANCE_TASK_CREATE_DELEGATED_ADMINS_VAULT_V2",
+                    "MAINTENANCE_TASK_LOGIN_SUMMARY_V1",
+                    "MAINTENANCE_TASK_PASSWORD_POLICY_CHECK_V2"
+                  ]
+                },
+                "preliminaryProfiles": [],
+                "tokenRefreshNeeded": false,
+                "clientOutdated": true,
+                "leakedPasswordsChangeTime": "2026-06-23T14:23:14Z"
+              }
+            }
+          ]
+        },
+        {
+          "method": "/domain.AuthenticatorService/List",
+          "responses": [
+            {
+              "authenticators": [
+                {
+                  "id": "a0465222-8fa2-42d8-9dfb-2ff3a15afe54",
+                  "data": {
+                    "highSecurityLoginSigPubKey": "O6rm2JFh0pIiJyV0n1pbPqp0itArRrwrqJ/33yuvtNU=",
+                    "highSecurityIdentitySigPubKey": "JrwQ33kXbB40X0EFudMlzsBvK2pCD6EZ4UZcnmg6G6c=",
+                    "highSecurityProfileSeedEncPubKey": "jQwNPY0m4/vlcFHcOFGyIMnyNp3ZPfJwv2wJ/na8vS0=",
+                    "highSecurityProfileSeedEncPubKeySignature": "cyrNUIi4RLlXlBxHKXA07V8RsM1RepP2CqMinfi2mvKx2fSd7ZDdnRC49AtbWH2Hb3gSHObEKg8O9PTtRIAFBw==",
+                    "storableSigPubKey": "JrwQ33kXbB40X0EFudMlzsBvK2pCD6EZ4UZcnmg6G6c=",
+                    "storableSigPubKeySignature": "TKWHUQokW+GOI5bqDNqlpRiDOFo4PUW7iB9J9GJlDRUvgjV0plQHX52riTYbkPkzg8WJDAGBQi/eFUXfKNQhAg==",
+                    "storableProfileSeedEncPubKey": "jQwNPY0m4/vlcFHcOFGyIMnyNp3ZPfJwv2wJ/na8vS0=",
+                    "storableProfileSeedEncPubKeySignature": "cyrNUIi4RLlXlBxHKXA07V8RsM1RepP2CqMinfi2mvKx2fSd7ZDdnRC49AtbWH2Hb3gSHObEKg8O9PTtRIAFBw==",
+                    "secretInfo": "{\"checksum\":\"Deypt/qKp9Xq8LFPrcSHbusJ52Q94CGfGSlN+FYPszQ=\",\"recoveryParameters\":{\"saltBase64\":\"aGV5bC1maXh0dXJlLXNhbHQ=\",\"iterations\":1,\"memoryCost\":8192,\"parallelism\":1}}",
+                    "secretSalt": "paWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaU=",
+                    "authenticatorType": "AUTHENTICATOR_TYPE_BACKUP_CODE"
+                  }
+                }
+              ],
+              "authenticatorBlocks": [
+                {
+                  "blob": "eyJrZXlzIjpbIjQyU243ZGZ3U2xnakpLRVNXRmllWVJhU2psMHYwa09mS1dPTi9GOGhJMjA9IiwiNnl5V1c3NHY4S2lSV2NPb3NzK3BkWjd4R21mMlZrWjVtVFM5eDFXV29RMD0iXSwicGFyZW50IjoiSzc1RmNiK3dVZVRmMjNkU3VhRi8yM0pQd1UvTityU1d3NDdNY054VXBPRT0ifQ==",
+                  "signature": "+/xVD2DM0xWCzYX5xuRALcuDuuLskTyOpKXSLn62a3H78G45seAjjh5mD/10Elqu5GGeE/+0TPTMid/RfNpiCA=="
+                },
+                {
+                  "blob": "eyJrZXlzIjpbIjQyU243ZGZ3U2xnakpLRVNXRmllWVJhU2psMHYwa09mS1dPTi9GOGhJMjA9IiwiNnl5V1c3NHY4S2lSV2NPb3NzK3BkWjd4R21mMlZrWjVtVFM5eDFXV29RMD0iLCJCTmRhT2RiZU52czhWWE85ZzRtNGNoc0JjcmFXNXYxWU9zVk1SbHl6VlFVPSJdLCJwYXJlbnQiOiJSSFEzd2NjU243OHkrc3VBdkVUVDVSOERnaTRPbkRnTmt5anZKenJTNkVBPSJ9",
+                  "signature": "yl+A7cxA/ifQv8WoiPt35p2QSftMknodw9H6C4/tUHecJLkXjKaNzzwiN9vzWlj1NFxFi/zB6AEzg5oAHnoxDA=="
+                },
+                {
+                  "blob": "eyJrZXlzIjpbIkJOZGFPZGJlTnZzOFZYTzlnNG00Y2hzQmNyYVc1djFZT3NWTVJseXpWUVU9IiwiUXRTQytnZjJrTjZXSXdxQnE4M1VNUXZiaUpzTDR4eCtLcUs4VTNheHJyUT0iLCJabWZTS2Jac2c1cTVHbWd5ZjNLRk5mZTE2WjFyU1NHZ2swWW5qN0JocjFrPSJdLCJwYXJlbnQiOiJ4eW5BK29HekV0a01XcFlPdWNtRGd6QWZXVUtFYUZwNWZqY2dseFhPL0xrPSJ9",
+                  "signature": "mZNlcjHSqIYNt9HUR7BZibp8xmOfO+22zXU44QrLDl7kIfWIeoKVrNTfZePw3m1PXJQjWkkuCy/sYqsPr9WEAg=="
+                },
+                {
+                  "blob": "eyJrZXlzIjpbIkJOZGFPZGJlTnZzOFZYTzlnNG00Y2hzQmNyYVc1djFZT3NWTVJseXpWUVU9IiwiUDFEZzFEZU5XNnkwUGhLblhOUkRwZmNvTmVBRlpmMHdpTHJLS1A5bnEzYz0iLCJyT0hzL1VacDUvUG5KYWVZb09IM0U2bTFkNXpwaEdrZWFpdFJLOUpwcDZJPSJdLCJwYXJlbnQiOiJUajBKd2FpZitjWm5MZG9WcXRhYkFxNFI2TjdOZkhROWd4YmxxL0QzckdBPSJ9",
+                  "signature": "NfM+Xg66NXBT6b5+NOP/TOXRwQZITnqvYpUwCwqNHSihwwpzSd2EdWGaCLQCMFvfcjCU+/5HkcVm9QN+pZG/Bg=="
+                },
+                {
+                  "blob": "eyJrZXlzIjpbIjJwZS9ZZmRDMWdncXhTTi9RTzhhSGtBMk1Hc2J2K1V6bi95YllkRnRsM289IiwiQk5kYU9kYmVOdnM4VlhPOWc0bTRjaHNCY3JhVzV2MVlPc1ZNUmx5elZRVT0iLCJpVDQvaFRFemhaWUFFT2FSR2lCbGFVOWpIMHNaZEJsT2J6VWFTaE1PNXNRPSJdLCJwYXJlbnQiOiJlVDhBREdBTW0rRURUMUtLUVlrZG9PQ1RCTDNaTjRXZHN2RkFNd05tNnRBPSJ9",
+                  "signature": "jouzRRcuaKNUj8JQZ1AX2JzZ5ITk36I8sBl6rnRVDuu7POv37Y6lxPXRh+W9E5hk5vRhISXKlz3Wmhy3PJ29Dw=="
+                },
+                {
+                  "blob": "eyJrZXlzIjpbIkJOZGFPZGJlTnZzOFZYTzlnNG00Y2hzQmNyYVc1djFZT3NWTVJseXpWUVU9IiwiVEhHMUljZTIzQ2U2cmpGN0tMc3Q2V2VrR2I2clVkNVV4aTdtWjVDZ3o5RT0iLCJnUmR5b1plb2pkSG1DYitOSU01M2tCVkZSSVVqcUh5WkcvYjM3eDg0WElzPSJdLCJwYXJlbnQiOiJTcHRYaTdod01ydGowSXY3RGZwSWpyTzZoVEZnUTlMOHhMaDRNZWc3d3FBPSJ9",
+                  "signature": "Xc44m1Wv3E+OKEfxSbA/jAInDB+Z6U8rJYIFiKbUgM7ikgL9aUv14XjyeYEO7aMIVhA9QHYRpxxLQOl7VCJBDA=="
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "method": "/domain.VaultService/ListCommits",
+          "responses": [
+            {
+              "currentGenerationId": "bb7ef721-b883-4de1-ae7b-f85593f55639",
+              "newerCommits": [
+                {
+                  "id": "d609e50c-98a6-4822-9c89-752fab9e1906",
+                  "blob": "KSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpsTBuXhnnsf4s8UV4OuP71qVvC2hXIkYCb+fNrcvDiC6n9acPFZAify2KxoN/FtJxAhh5eXGKB3ljps39u1aZoHaUVkH0mRQ3"
+                },
+                {
+                  "id": "837d9c6d-9947-44a6-9e88-301f6a3efe10",
+                  "blob": "KioqKioqKioqKioqKioqKioqKioqKioq/KseKbirMOKj8xV354m00iVY5CHyUrryq7ZrEMamJ1R2q4o1jImoh24ccE3spgYJhT7r8qsHNdPN/lysp6XjypyuT47ZVUVDB5kzAZa3h6JVNkbLmM5ZOJHSugx5AnTyuHnpAbyCT05Vb4f2eEWAAmjHcRiVuvvuYJJKjTPUJQ7eh/cqfuXWNQEC1EOfzFZS2xXmfsKgsElu/ynu/TJgPusrrBZ80+88CilQZ0oigMWf7SMXqiDJ1KDzRJmg39VB36/NHqEsIeBTCLv6MLyCxSxa0lRd239Cd9QPHsgTbXYTqW3giLqggPNvGgT5Sj98J7bxtZs2CrlD/kAOLvTndMv8ce1aNGhKw23g+Z2VAl5viiwYD74YKdWKmyBU7Wc5Ojs43DJyf9Q2q5DWlywkj2Ir+BscZCZ5qZQd1bO4/mA2kKAwDfRtP7gLrnn6wgPC9PKkZkuGDTcYhn2l16CGFJb71RZ+cYL2GrTH6ovPU4ukmnYW2sg+f4gavpaFlAYd0tyerENDQETfSIMqP/j50ALgEZ5xXOkB3ZpP93COaFdVxes6dJ52gmjLkCUCNtdiceZ9SExW3IQfRQEs172tKevAhHdJPLwJt5Q1vDHsUVZKJP6B4RbbClbHNnkkrWrktQ=="
+                },
+                {
+                  "id": "82485c04-837c-4065-8474-c650a5d6da71",
+                  "blob": "KysrKysrKysrKysrKysrKysrKysrKysrdFzjqWC3kC3qDijlRG3mTMqE6WcBFPKrlWTy+tGUJHOKr2mj3AwONh4fYc87/aIfrtGvuSa/DC4111VBwkeVfuiT4hoQnJmINx89OUpDkKWCKDlgMC9N85jlgEmSNrRmWrI8eqApph9nhbGA18ETtDxmSp3eXuBh0sQytkUEPV8OSRC8UBvSI1LG+Paqec4RoWJdLtGLLrpfanYgk/vsxgoyEGRhdxfAFLxcMsNI1QjSS/xYlqUpvnajsB9s2c5QYNdBAiD+114RPPIVWfSPWAzmnvh+z6mCSWUU2JnmyVb3x92EhEJfS9uPjNatl5VzMZmGRj+rD0vXLsO0CdYGWGm5kB0uICyggVsiH1p+VqCqefveEoKPVLSEHhM0ZHu9ppt0I4OsV8VSEcnSrTBFvFGpUTRLzV3JyPdrhnZpXwgmcuJzO1mXduljuWjvLs6qfgPDyOlqrAgZYEdBq/NWzK01+hVI7t+pNkMcSGsEBOefGzepNyqq+xx/C6rHhJM3FKI2Z0/zKDSoO8ZbD61333eEYTRbuUC10oPSK89/85D0rc35b6nxMjIOB+KKbu3LOjT+tr8jxjaO+99NthBhExlmxy1OVsq53o6jVOEnf0rfZu8v1iTau+y7548="
+                },
+                {
+                  "id": "482cad9a-6b17-400e-8ac1-90367edc5ff0",
+                  "blob": "LCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwskqbZODl2unqOlqGGBNaUL4TtRBYEQOzowOtDvOtP+VRignsj92EP2c9AgY7xgv3AuhH/78yaI3fhx3OHIi5xnwzH38foDBr+3GuL+hUjwGI1RO9amQaIqPseizRJ0kqSXPpF+FQ0LtzcAOsFuYy7SOO7+uxxXpPfbW+liKymhYMThmfR3I2T+CWJPRi7liHGBKIxuixwmF1uRHkOa949CRC6TemTiaHd5vnlBNjrckOXnRf7jKPfbDGDnm9764iJZdfVL7Na/YApT2tRuPedOLgoD2+wcmZsm8KakpNOx6WzZafynTMA9adw8rXfvjZwCC6W3Zmd/yG4wUC2qDGFvjguWgFmj7HmWDkg6v1PmXghc2UmsGhMKaRI/8yT/5BhbJGehSy9PlRKi3KJGZ+jQ9XrhnmdqY8toDs1XlyRX7I08xWWG2OWn/EFNn4/9yJHy/2pp6l4iTVmDaja/o5XJFisZq/Pc7lKezrXrgkKrhkKSvNtnMgpR0b9rx3TdM8Rvj1/XpnjctOz4YkDkZJcrfS1mp2GT7KDa6XgtSFwIF96n3CPOIogtlRk0M23EG9XJEt0lm8ULJCogXQW671Sul8G/TihaJHD3ceRRxLaPxwNMkQpthTp"
+                },
+                {
+                  "id": "3556f060-df00-42c1-bd1c-218d066fac78",
+                  "blob": "LS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0t3l4Y+YZOjFWUKuguqo0WZ1JGvdiRSj1AMp7eOXFbVyGHKkId4ai5jxXP+l2OLvzoBYx7xD06yUwR3pTyum2LSUNGsiQNvJxbzoYGlIkhKD8uoZONPmPXdR00kWTWSD74pmkuav5Bo+pauZQmuyQ3ZwoHVFzw2wB1kiDHxxH4hxCUSSFYZmBGL1HqkWNO8fQpz44+SGePrv1AA8uadttj2fVlAPqTC0s/TJa9H5uHL4TbfBDwCH14d2XWky8PTKR81Rz4EjeeE2HwTy9S+ASydWHK1PsBr+dwJk0kBumNU98JKfDScZeVGKRxGiLRNnYMTFvTX6Ct5Hvev9J9P1Mz8/fpzFDXYog5oqLpBT3jfYgijBFlSqwXKg2ric9g1nsHDyfGSmnnwJ2EpNdABNa/HxUgvkdowz1zE2al3pO5IDEJ1ZIUByiTBF1ovvpsPR/To1hDBwwvwPlDIqd4v5Fg9nYv"
+                },
+                {
+                  "id": "32d2ed11-937c-4595-863d-164aa055e0e1",
+                  "blob": "Li4uLi4uLi4uLi4uLi4uLi4uLi4uLi4ud7EAXOhMFejlSaxn3nVFwAr0eUTAWtfN20+wL4pPxprEm4/j7iZ14y1bT0GBtPrsm/PwOwFoSRtpHj8IYNCv/qJk3e8loGjTquympMc0iob6Lm+G8+i44TJuIXUn79K6lzshNsPDcca7oorCuBxBh1Z8pD5nLLnkYb1cljZ5in+ukSfAsLYUyyVhWd/TVyhKIrQSmdJ6pc9MjED2/YCTckN13jISry4x9RJ5DvaRSFRyrMhOPExzaGou2gx8ixVfhk8kEfGWaIHSgh/Ew5n9Q10ayRL3qVIUyYlvYixRZ9RdK7kwQEnx1Hf1FedsRLYd4DS+e4ZueYvTR/D/ThC/DJWUEi79ZDth6i0+2Qx3FsrKxYIFAz4o52Jdx09znah3INhToD/Atoz+z63eHLKQnAdSiE/RDNeOWCL4Phv7Lr9m0Iiqa3FIfn7QZP1ICLOEas3FD0h+fETaX7kyawdgKUPSnm+QYmEVHG9/M8x5ciA5qFWsNyDrYT6imClWHeiV/fFo9FPVx/k5rmjcPVTRqxZRab89kOD3IIzi/86wMrDfKxXUPIV86lsg2mqGyYlK66405BYkPsH4wLnyZto3hM1oOoAGvNtcm8gzQ5/kilOBEXNdgx7fcJ2y87xeKyJj/iAWiM7++jccwu7RwMCP57z5iporrQ=="
+                },
+                {
+                  "id": "28cbf11c-71c6-4166-bb89-d08e414e3109",
+                  "blob": "Ly8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vohhzCrDKENxhDe8rN0ybALRzoUR0/Secbwyte/l5LoCXrqpvQoEOZqqhqPM123jsbmfgOK+HdE8h9Z1vC4cgNsId0CjSE++rcMzdFwLA514gzokueR1a8/8UjCNv/RBsCcapBWGD0VoeounOdDjlkv4U/nOff0uwLRxyeD3I2mTQSoxus4kMVqSScl0OkPeZMkLRqdqNp/sSgmSEIhSlDSMm5tG+lYVC/QDN0jRJB9eFyVUUZpDOumzKcLKPnLkTDY1eMgQgukkNJd8yEJIxWGTmn9NSJXduM3DxaJ58+euUA90DJN7gRknzm+FDWF4RGsy/bSvrWvvU9Nzxw84Z7AHnkW/IwK+xyDzCfVRcdYg/rsuLOuHWCwXpGt7RVEnP9E5Pwz8Nh/Y4kkNYXIZtzihX7o5cOjc+qBzM3cM8oF9KpkGKfRAsXrR5UDDvALtlRk8Qfe0H9oWjO3CU7c3aO+13sviXq0iURKOTkFTwdGKrBd05wKkGfmlwDiyx2RVWPTDmq3MGWRMzrZE3usbOFeeqb1Bc/UkOueNmulz4qRMjABO/EshK9dwNPj5pVyT2FVvTYzr51rysyyQd+vPCM0+Lbqd/mcGqt44vkMp9yGhal7Du+Fl6Cts92L6ynK6i0t4VoLwwGzdZV32ww+jOigj6/+nZF1aM/IE="
+                },
+                {
+                  "id": "b10adbe3-3aeb-4f2f-b4a9-76bf94d706d6",
+                  "blob": "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw/9jzlSNlwNvfQvVdyEPeXqucriIX8dEotoVtPVRHsc+J6opBvspHWjbiJS4pyMTY+4z8txJm621fH5xpufFAHzZ5ZtxLC7tehSU/jFyyR5xe5xC45lVzX2DasToQejrZ9xTBezV3ZYkZXLCWchh8UaUwcgZgiJTLzei7euDxd173U1SjUJypc6j7lH7R/SqwC2QbvfvkU8y/shP/AkzL9HR2befhYj5WkyRjtm7EOHXQFqsWUgew0U4RP0CXmhFwXMLkKzzpsWP/Ts0r79PBwEP4Vg3RVIqdFdp90JVEkRYecwXGzmozMPeY3rgZ1Rj9rezFsPi/BhlfY+rcpbPFjhQ2h5K4pJFlsVRecs/sZwoTunxiV1EzaUFm4H+9Kmfc6xvLDMBUVcKLi+W87Ton57d6HIsgiB69Y1uUaER7k3MEaFXfB76MDDeuQSvmp2MPDJet7L2fRjFvi6vQ4AChOUCQ81RvZjtDVt4fcdMYmzTNAZnancWhRjwa7OqoR3UqpixcZ1yLYgwVVOYHE8tpDu9dkqcZYo37xGyuBFSw81bUV78yWC8rY8HS+MSoIjSoygURTJFbScdumDHALjEs4oYDqdipzHTgBBcVApBq9kHK6SCuQsqtbhOqL/BpQEm8znuyZOVLWoSXkY62SD9OxJEYNCr9uTXJ"
+                },
+                {
+                  "id": "dab3fa3a-e0ad-46f6-ac33-0cba2eedd04f",
+                  "blob": "MTExMTExMTExMTExMTExMTExMTExMTEx6CVV8LOgnnHDm1lojYk0mGuzhELXLdxkXkF8cs7VVXOZ1Z6RG5X9cuZP7Q82TI4dwqEEOgLlGEERFf91jDSC6nd2P+cEdI4WSJ3o1WokP6ZMd3Lbc+Ybyf1MIk+XR3qtpzfdyWarvwncvo12TBruZ4tGU4n5JEANBS1uDVP+VSqE2YBxEzE9WFmWh/B8ETEp4V8s5ahf9ldj4rhkUeVNMnMGY98TbsX1XT6A8yap9kwPTdspGSkC8GPuqbg8Xp3smrcQgefU1P24K3dZqUH4q8LiMK+6vcVoYBcyksOJ9NEfLVyAFe25dqKm4gNGXf8DhH2iv2EJ0vnz8COyyn/MDBKd6Txep2s1Of/DzAxzEmFyeNdEF8ZwKioZD+qG50u30hszeEMn4ny7433JLvlX+89//r9vMyFnNlvYonl1oOOizWblYRb10t3A4cqDk3ANEn1EMJ0LbE/fJilcEhYrxIiID28wR73lmbLwqdJLmsubgpIh6oUK5WFwIrAFzSMwq1ywoS9iKKWpV55ooWChCX1GajieZVP5I03i8yPAndXoJjvPwF7TygcV7TOodWA+bnbdtWOZG1a8JSjRAiXoxADlzwIemMZSPPPBH/sJRA1DU6+7Tj9QTFIuW4tk5/Q0Pkia/sPtpGGEyTLlNiaEvPC46CZ55QFc"
+                },
+                {
+                  "id": "89dde026-d144-4a8e-a1d5-e9c7f399eab9",
+                  "blob": "MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyBAAuRv3UJrfVYzsQEhhCEAekh0jk6NT5Gpts4X4FZ89hSRq7zfIoq14Xg63PdBinFVzE4tT1ahCNk+kt5xRNoXBcN26Va3fBsU3Jj3x3d93jTsQ43DEEJLq1KSJZX7v6nePyUeWxrNVSgJxtPW0da0tJ3jf0up7LTa1GGsiGQqZ9UTgH5Iq0uhg0DxbcOPUBIA6yYjwuNt9Ulb+dUzQIGMQJ0v+DbgspDE8LqHIVpKZYmsMf3nPztUaUkAXlLQ+cNAks7PfZBlCm73TJTFL24BliuzWSLzL8vQw0NmGyrvD/yV1A0XmzSRZCuvvgG+M2TqXfnoDm7e7qNcAV77jHjgwPw7wFgRt7cb4ktah+H0DNuZTWIZ8ncUTQpEA9iQ75o2cGERGk/IJQ0SgCI7bRFkBj99m9S5SHPVghoPF6iO9nhTVSspUon8EPvSs4g/2LbDVJam90y+y0uGrkb4yswdoC84lG/nz+TjLH8ztRasAWbH92U9KLLkx3hefAg1d/OK3T7KezftFzwPQcs+tFpt+eIf4oNMadJFbXciBvZJPibAtWmvEjsAWSOizRqh4IrJIFb+B3gNELvMhwpNOI+aOW0vX+7yS/g2humZjThmnA5Rzhf0p9L/rLKjM0kLvtXX4Dvsj1d6xfQos="
+                }
+              ],
+              "serverTime": "2026-09-09T10:23:59.695723497Z",
+              "firstCommitId": "d609e50c-98a6-4822-9c89-752fab9e1906",
+              "profileLock": {
+                "lockingProfileId": "9d9ef526-ca0a-4993-bdee-2155eafb701c",
+                "lockingProfileKeyGenerationId": "98d29781-e2eb-4d90-9572-c053c750f33c",
+                "encryptedStorableVaultKey": "JiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmNDDgAU3VC2En5L607sxBFZHgYe+XkqMXw2BWGRACty8y/qBJnpnZ9xRGcoXNDSR4JI7Dnu4vF+f9c+KnbMWY/ZkDocyI7Tc6VcgCfdhSqBg=",
+                "encryptedHighSecurityVaultKey": "KCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoxGpZ7iZlFR+LGHQpymPsBtq52tN1CzjXD3eA57UfXkl4h8v2jwOAB7LXMexeXreh1CFKZuvm7MC7rFEGVyPPLVNUqG1nujs5/kfKvmKApOE=",
+                "encryptedVaultMessagePrivateKey": "CPNcudHHryDLFSThemE6I6JVhLhgA5QPasHUI3pI18jw9Afsot8Ee6eKqgMlO0MMcdmdI5ZwxE5hj+477jm5yp17CSlELGW8cUDn9HPfK6QmpBeX8UJDEH5Rxc7MUDjFdAGq/oQw8AM="
+              },
+              "messages": []
+            }
+          ]
+        },
+        {
+          "method": "/domain.VaultService/ListCommits",
+          "responses": [
+            {
+              "currentGenerationId": "2f1df2c8-7db3-4371-afd1-b167c14a0cf5",
+              "newerCommits": [
+                {
+                  "id": "6dda22ca-a277-4b9f-a197-8fe76eb7dc19",
+                  "blob": "Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3aNNdENi6NE1HCjRccrQkfFlzaXImdW3KUsjUm6U/eSjw49KKDdgO3ihcpHtio5eVCoLAXM1+iMqquRB+6QF0CvWJRSq59vg="
+                },
+                {
+                  "id": "0ca99e10-fd09-44c4-b766-956428e23ba0",
+                  "blob": "ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4zTU6Vcl/tkGuWrc+1ABccWp9By4nEDzu1pRFLSwYvC5CwEK9JJLbe5HrNHMJMKRD3m6BGQpbLXtlld0I7GLAo8K6yASZFccn8dRfrQEvnERr5iOlvn+wCB2UXUjdBdopiaWqwBvIO5iXr367QA+GUwQQgEhVk5dMisXwedcvjTZSOCBiXkHLzfK5QA1T1+fTe0fiu3M8yLYeJv8/ADOidQsQfuu3Rlhin1MtnoEbEmADQ/IF2acgdNRt9yk1GIxqMEusDs3rqfVcmrHS7p1C8WXUJ6z2sor0Sqgy03S8MJmT0ofdSiAfeIP9QSnnyuuXWYL+lrgXn3JBdWWgu8173xpX8RbfMdGX89ASmepesNReYkaSFRLC6yBUjcxOpSd7nA4YKgp7lpJshPPx9e2CrwDZWsBh/FdR/LMh6s/pVvUjPveoTX10zNMbHK0kchBj5lGjYPP+XKz9j2BOMeXqihNBz+q2qYCzSR2D8nE3Q/X7S2NWvGgUaIdxVc8D6lte4ouVS2pMCpd1YwoKbOqCEFEGAlhIvWFlDpud4Gd2n4Zuzc3jvDiUbsMZTOICFDJfoi+ImzsdyEGkPzhdMN30aV7Bn3n7BON8bHaFdSjeG/OKGo1LNhUpGLpMZEnZRx63/W4HROck9XGJa0jR5Xl6N1hGc6ogkXb3ZtT0UDvLQm8ZbBjdIh/DVIaGLo8jKWEL3uOrBhRqh2DVdqz4eG4N66LXg9H8aZES6SbQ8gzfZustJnw9v3q3icP321oih7lRHvm0n+EmatcPGVepyW54l7Kcz/M/7Ylvy24eSPzgBSwnjju/8dIs+zzrX1XZNB3BRK+67dDDihPd/Bi7CSlUAbjAhSKeqRTeRXkIQo+Ag/ruKa8cGLtk0E1k44Imc6UDSGoKOuyEfR0W5VqBcuiZoaOzeLH2UTUUU100tvfgNAKaN/PEa94xic9yo3rz5/NiuS1Vr6503pec0VQGT2VA3KkHYjZxCpSZ76LDPGj7PihIENfVIvei5MNMtRqgmvMItJauLQ8GjRv+WT08F3KmaIc1vJcqW65zUuZOvwDgPly9SupkQ4UG2I5fpnvqNDEs0FQEOscJ"
+                }
+              ],
+              "serverTime": "2026-09-09T10:23:59.859491843Z",
+              "firstCommitId": "6dda22ca-a277-4b9f-a197-8fe76eb7dc19",
+              "profileLock": {
+                "lockingProfileId": "b78ce94d-3f5c-484d-ad01-427347c5e29c",
+                "lockingProfileKeyGenerationId": "afe5cbe5-1a74-4cad-a9a2-49994e6ddd79",
+                "encryptedStorableVaultKey": "NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0ew1H2TQn+DERYHgcfHM/2J+IlwrvSQ2KoO4ZpMuKGxQER7eMLXAT8GgVdzGLA7gY/vzPwEKBeyrFFwljkS7DdQwg4kFnV0v/3BUe7ke25GU=",
+                "encryptedHighSecurityVaultKey": "NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2YnlnrIM9B60nS9+2+3uiozZ4DnIegvFEfoWb+QpprWIPS6f+Ss5V6+PmsbiM/2blcAvZJ7smM8umz+UCDXQuo4LtQaTikmpjCQELtu/8o/w=",
+                "encryptedVaultMessagePrivateKey": "m/EyoLgHpNSx9Eme3GqSIKj8w7B3VN4VDfgIhSCVOBajYYEVLlKkRRCG8lFSvjUkoIKAEzuyMxFJ9oaXmNSFFqCjGicKLCfT+qoCkr8w5u6VUDCuzouYGZDtfG7hZ+upZMMHQhNlqTk="
+              },
+              "messages": [],
+              "loginMaintenanceCriteria": {
+                "noLogin": false,
+                "leakedPasswordsMinChangeTime": "2026-06-23T14:23:14Z",
+                "loginSummaryMinVersion": 1
+              }
+            }
+          ]
+        },
+        {
+          "method": "/domain.VaultService/ListCommits",
+          "responses": [
+            {
+              "currentGenerationId": "7cc8dc81-351e-4470-8a53-8037bc563f00",
+              "newerCommits": [
+                {
+                  "id": "035b1f9c-06a2-4a5a-8545-6df209ac60f8",
+                  "blob": "PT09PT09PT09PT09PT09PT09PT09PT09nHA6MUD0//IXWZxiroaFT+/tSKI1HJ5hczlA8GnuPnPGa7gRBgRghN7vxkCgISvZSm0n3cvkUqvdysmsfesDJ2X6sD/tu+OijE5gV2Pq+Gr0x+QZ0I0x"
+                },
+                {
+                  "id": "3eb60d24-0833-4d63-8fb1-60f4e0731468",
+                  "blob": "Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+6NJbGHZfjl+Rm95u1m7MtZpXL31xNsPMjLs3f581QlV2geOue/n9gD85ACbObMsSbfCxr3n0x2R/Xd5Nhfu6EtjKS2wMq7zkbTmhofjNoWCBslxNwuQGHfzKrG18nke5G4nwY0OpBU/Qb6OGx8xpWlSKyYt1hDmnClZNnIJ7ka7g/dJ1y0fgTWFn9Lyfk9suwsMF/T5/Qbl9oOobCpJ8KYQIaODl/4j25n4WrVszdbFAe2PRwciFC5ImuXzGdT5OxmfwEfB774ehiTwCjAWBrWlR2/ji1dEc09bnB2M54RC2sxFpNkyEBeOHqbl54kxiMiOismP4tjgogEcQq9p0kOChCkaKcOsD3xLncnERHRLuiTMlMc02eF2Lu0jDx50xbeOmZD9lBnqrCR2PzQNVZjHbUctEVLYl0DpjkJZdfZKC3WJPvDvaXill6Uw1GLonl9GNjU7KTwZzV7r+UaQKFOsFV9KEay23fiFerIkSdDRJNfgAZnaDoiVGeZbXHNE/cqyl1/dvCk/v5P2jShUwZnkOWNfLUpb/mgkr0N58VjKmpuE5DDb/5rm7nUPbzr8KrVE2gxQwpyPiSmSxkA7+W6RTDSLqNrWmgJJ5DTgYZSn2gyvmO5WZjE4HL7hEhuI90Gey1lafpro453+KzoJp+8/OFFsAk0+ycIiqEN7UoC2StcjdOqaNmNcujW+COAKcXSq17fkGz9D1tg7nJ+zlcHkMXj90A9lwbC6w/UIUszzBBvoz9yaRwtICAuC9sGZM7TkFgmfg6wnzhojjOWlAhtRFChKpkikuy97H2+1y2XW6Goz77/n0SOsuDwP4j0nhf4JWj5DdmTOO8xmcUds0ArQK68+QhMwu8KxgihsU+lgkVo8T1e63IWAMS/CDZh877TqX9dcqucl8msIK/xljbDxywDbHn3A701CPDAS2SDdiUHsAcdLPnCGsJOHz5c7Sbyb6C/0N1Qls3xgcERs7CRaDHpF4EEJBkIrOAvHJXU2/mCa8dep9aXYFmVD7PmSf5wK0XerP06EypsEehBw8ti4JQuPBKgNUTn98ZHgbiGVGXBdV1Ym8QpNkju4JQm1V3esRFMi6VfGCege2cgMl1z1DfZ+fXoD24g=="
+                }
+              ],
+              "serverTime": "2026-09-09T10:23:59.999094979Z",
+              "firstCommitId": "035b1f9c-06a2-4a5a-8545-6df209ac60f8",
+              "profileLock": {
+                "lockingProfileId": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+                "lockingProfileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                "encryptedStorableVaultKey": "Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Ojo6Hz5wolt/Jc7Mx/4SIzeQVzyVCEs+D4+Ac40z5QptaUMMMYlVu9nbjH9NWsyu/v27Lx3GkRaiWFXz8BjjSxw0Usn6sS5UFcjn7fAcxS65gvc=",
+                "encryptedHighSecurityVaultKey": "PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8Q39GLFiolk+nGBZAGe49yqtgI9sznIV+zSoxpWuJ1U7ZgioIuOzf+L9399chpahYQAWmLCHePBcEgKP/Ll4mQ0VJi72jfVQHSlG5gb05/M8=",
+                "encryptedVaultMessagePrivateKey": "VMj+4ESHUXUmOwBaEX1bjImQWc7sYOMqGJB4Vbx9i3kw97YLFhv50wUjkSmtCaGjFgoYBbWAuWUbWv1IUiPL8cKaQk+fAqqb7u2c6Rbw845xBnhUIce2QdiE0vlSqT7TAAlvzNElOMw="
+              },
+              "messages": [],
+              "loginMaintenanceCriteria": {
+                "noLogin": false,
+                "leakedPasswordsMinChangeTime": "2026-06-23T14:23:14Z",
+                "loginSummaryMinVersion": 1
+              }
+            }
+          ]
+        },
+        {
+          "method": "/domain.VaultService/ListCommits",
+          "responses": [
+            {
+              "currentGenerationId": "48305ecd-bfed-4259-b34e-0096ed69cbd4",
+              "newerCommits": [
+                {
+                  "id": "942295bd-a127-4c09-953f-8ffe48b189be",
+                  "blob": "Q0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDxiMLowryeyNsK+A+R7Lel9XRTY6s4k3upDU0OeHFcMVtpsKzOV/7/qQkp3UVppRw1eihWgWB9ci0J56UDjcpc4STH2pAWqjBezpmTP4FYESybhaF/4b0l1fX9q0FJDwh+e7kB1oJU3pMhRYKMi3YV56eah57S/PD6JoHXCsSkpE/aMLMdHetYSDd8ap21dVHQE60DKkBq3gEPSr7QmiWsvR+NY0lXShkgC+GXHlrtvou3GfraUUzJ9b/hQ5wRgiYWAlG9M8xL/DYuHZepYH+U8Uc2KA="
+                }
+              ],
+              "serverTime": "2026-09-09T10:24:00.149877860Z",
+              "firstCommitId": "942295bd-a127-4c09-953f-8ffe48b189be",
+              "profileLock": {
+                "lockingProfileId": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+                "lockingProfileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                "encryptedStorableVaultKey": "QEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAiFWznxuSeJQzhRpc6DSEh+wM9913d7i5wmc9aZTeZ0V/i9GTY6Ez9631RtZTsrLjhh/k2PGAOvxFznCsPHzyvePm/fpeepQryt1l/h1N8bs=",
+                "encryptedHighSecurityVaultKey": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCehpOcJvwhaxJSroEabmx7aCrH3ixaqu3n/7akGI+hSIE+p1Kf99XZ6Mu9s5J704j6O+AWWZbQrdn4CPbJeJ4BqSmg8atULWtaAUndOFkc38=",
+                "encryptedVaultMessagePrivateKey": "8awKTM0XjtFJJODpLb35Oxqn6rgxwGN68NrEbtyPcR7aGvBfSlnsSCaRG4NrQF4PlfEGry/qvBcw6L7QYgyO6c0DEfW0QgZ01HRVWkFF5+jKplFk+4GuCbD50L8rNF4lMO4iSoXYPhg="
+              },
+              "messages": [],
+              "loginMaintenanceCriteria": {
+                "noLogin": true,
+                "loginSummaryMinVersion": 0
+              }
+            }
+          ]
+        },
+        {
+          "method": "/domain.VaultService/ListCommits",
+          "responses": [
+            {
+              "currentGenerationId": "0a038bca-0d53-44fc-a724-648de340e3a7",
+              "newerCommits": [
+                {
+                  "id": "5c59a6cc-b257-40df-b930-03b1c6e55f06",
+                  "blob": "SEhISEhISEhISEhISEhISEhISEhISEhImLfTggiPP6aOP9SbNbYkk6ZesxOwEs+NgsP5SgXC83zX9EVEHdH74zqB63J1hilU9pE7DyO/8NNP/TFeMOBSD3US6xfIUkg="
+                }
+              ],
+              "serverTime": "2026-09-09T10:24:00.287822157Z",
+              "firstCommitId": "5c59a6cc-b257-40df-b930-03b1c6e55f06",
+              "profileLock": {
+                "lockingProfileId": "1a54d8ee-f081-4485-a4c1-ebe35a17887d",
+                "lockingProfileKeyGenerationId": "39d354f7-9b44-45f1-950b-1fc49d8d8aa4",
+                "encryptedStorableVaultKey": "RUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVF/y7kVgHsG2cxDHeQQEWFrmlzMe7hwfjPJBlzHB//PmswsGk9TXIG5L5fjgoHRM6Y9ziRhvpUe9yKLAZD/ZehimnyxRze91WzcO9BOUDYk4s=",
+                "encryptedHighSecurityVaultKey": "R0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHoop8RO3iV9Zk+/FWr/p9qKuzrnS5/ujXogeFQ1BOGnUygjWmUabH1GKWnVwmCqI2Wz3LQxgMjRBT0E7p7QVSpVClKaftSgOUyf2rZY8zjYs=",
+                "encryptedVaultMessagePrivateKey": "xIo245i5CoEgNlhNwteE8X+9G4mBNzihj8jX5jFmUhIAYDaEOztX/Ad50/VBI5es94pCRUU+ABje9QuGBJ5oT6Mx5ZZk70F/qeRqCxL3thY/N/79GYMWIXKTSy5g/tJtIgZMyVmfG30="
+              },
+              "messages": [],
+              "loginMaintenanceCriteria": {
+                "noLogin": true,
+                "loginSummaryMinVersion": 0
+              }
+            }
+          ]
+        }
+      ],
+      "stdout": {
+        "unstable": "doctor's JSON shape is not a compatibility promise until M6",
+        "checks": [
+          {
+            "name": "session · unlock grant",
+            "outcome": "pass",
+            "detail": "seed recovered from authenticator a0465222-8fa2-42d8-9dfb-2ff3a15afe54"
+          },
+          {
+            "name": "link 1 · authenticator login signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 2 · authenticator identity signing (high-security)",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 2 · authenticator identity signing (storable)",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "profile 9d9ef526-ca0a-4993-bdee-2155eafb701c · both seeds unwrapped",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 3 · profile 9d9ef526-ca0a-4993-bdee-2155eafb701c storable vault-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 4 · profile 9d9ef526-ca0a-4993-bdee-2155eafb701c high-security vault-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 5 · profile 9d9ef526-ca0a-4993-bdee-2155eafb701c storable identity signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 6 · profile 9d9ef526-ca0a-4993-bdee-2155eafb701c high-security identity signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 7 · profile 9d9ef526-ca0a-4993-bdee-2155eafb701c storable profile-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 8 · profile 9d9ef526-ca0a-4993-bdee-2155eafb701c high-security profile-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "profile 93419888-1951-4ec5-9e87-dc942c35dfd9 · both seeds unwrapped",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 3 · profile 93419888-1951-4ec5-9e87-dc942c35dfd9 storable vault-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 4 · profile 93419888-1951-4ec5-9e87-dc942c35dfd9 high-security vault-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 5 · profile 93419888-1951-4ec5-9e87-dc942c35dfd9 storable identity signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 6 · profile 93419888-1951-4ec5-9e87-dc942c35dfd9 high-security identity signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 7 · profile 93419888-1951-4ec5-9e87-dc942c35dfd9 storable profile-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 8 · profile 93419888-1951-4ec5-9e87-dc942c35dfd9 high-security profile-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "profile b78ce94d-3f5c-484d-ad01-427347c5e29c · both seeds unwrapped",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 3 · profile b78ce94d-3f5c-484d-ad01-427347c5e29c storable vault-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 4 · profile b78ce94d-3f5c-484d-ad01-427347c5e29c high-security vault-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 5 · profile b78ce94d-3f5c-484d-ad01-427347c5e29c storable identity signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 6 · profile b78ce94d-3f5c-484d-ad01-427347c5e29c high-security identity signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 7 · profile b78ce94d-3f5c-484d-ad01-427347c5e29c storable profile-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 8 · profile b78ce94d-3f5c-484d-ad01-427347c5e29c high-security profile-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "profile 1a54d8ee-f081-4485-a4c1-ebe35a17887d · both seeds unwrapped",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 3 · profile 1a54d8ee-f081-4485-a4c1-ebe35a17887d storable vault-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 4 · profile 1a54d8ee-f081-4485-a4c1-ebe35a17887d high-security vault-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 5 · profile 1a54d8ee-f081-4485-a4c1-ebe35a17887d storable identity signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 6 · profile 1a54d8ee-f081-4485-a4c1-ebe35a17887d high-security identity signing",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 7 · profile 1a54d8ee-f081-4485-a4c1-ebe35a17887d storable profile-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "link 8 · profile 1a54d8ee-f081-4485-a4c1-ebe35a17887d high-security profile-key encryption",
+            "outcome": "pass",
+            "detail": null
+          },
+          {
+            "name": "vault 2ec7a7ff-5b23-4cbd-afbf-cbb05c976876 (Meta)",
+            "outcome": "pass",
+            "detail": "both tiers unwrapped; commit decrypted (snappy, meta, descriptor v2, 2 content keys)"
+          },
+          {
+            "name": "vault 6e577b16-1303-47c3-8579-37e59cb71276 (Private)",
+            "outcome": "pass",
+            "detail": "both tiers unwrapped; commit decrypted (snappy, login, descriptor v2, 1 content keys)"
+          },
+          {
+            "name": "vault 52300857-0e3a-4f4a-b3b3-86c3cef3d9d5 (OrganizationPersonal)",
+            "outcome": "pass",
+            "detail": "both tiers unwrapped; commit decrypted (snappy, organizationPersonal, descriptor v2, 1 content keys)"
+          },
+          {
+            "name": "vault 0f176b78-18e3-4609-82b6-e1228673ade4 (TeamMeta)",
+            "outcome": "pass",
+            "detail": "both tiers unwrapped; commit decrypted (snappy, groupMeta, descriptor v2, 2 content keys)"
+          },
+          {
+            "name": "vault 111bc97a-8949-4e6b-a7e2-8cb534774db8 (Team)",
+            "outcome": "pass",
+            "detail": "both tiers unwrapped; commit decrypted (snappy, login, descriptor v2, 1 content keys)"
+          }
+        ],
+        "summary": {
+          "passed": 37,
+          "failed": 0,
+          "skipped": 0
+        }
+      }
+    }
+  ]
+}

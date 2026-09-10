@@ -42,61 +42,63 @@ and in the offline suite.
 
 ### `record`
 
-Captures a whole session at the **API boundary**, in one pass — challenge,
-tokens, sync, authenticator list, every `ListCommits`. One pass, because a
-recording is made during a real destructive recovery and that opportunity does
-not repeat without pairing a phone again.
+Fills in a scenario against a real account, in one command with four phases.
 
-It runs the product's own path (`heyl recovery`, then `heyl doctor` through
-`heyl-app`) wrapped in the generated `RecordingApi`, so what lands on disk is
-the messages heylogin actually sent, in the order the client actually asks for
-them. The output holds **real key material and a live token** — it is input to
-`rekey`, never something to commit.
+A scenario file starts as the list of invocations you wrote and nothing else:
 
-### `derive`
-
-Materialises a situation from the base corpus. A situation is a whole corpus,
-not a patch applied at load time, so what a test sees is what is on disk — but
-hand-authoring one is not realistic, since every record has to stay
-crypto-consistent or the first decryption fails for the wrong reason.
-
-```sh
-cargo run -p heyl-fixtures -- derive --out tests/fixtures/api/expired-unlock \
-    --set '03-sync:/syncUpdate/sessionUnlock=null'
-
-cargo run -p heyl-fixtures -- derive --out tests/fixtures/api/refusal \
-    --fail '02-create-tokens:3:30460:Invalid session type' --truncate 2
+```json
+{
+  "meta": { "code": "", "session_seed": "" },
+  "steps": [
+    { "argv": ["recovery", "--email", "you@example.com", "--confirm", "--format", "json"],
+      "stdin": "1111-2222-3333-4444-5555-6666\n" },
+    { "argv": ["doctor", "--format", "json"] }
+  ]
+}
 ```
 
-The review property full records give up — seeing how a situation differs from
-reality — comes back as `diff -r tests/fixtures/api/base <situation>`.
+```sh
+cargo build -p heyl --features test-ports
+HEYL_BINARY=target/debug/heyl secrets-env \
+  cargo run -p heyl-fixtures -- record \
+    --scenario crates/heyl-cli/tests/scenarios/recovery-then-doctor.json
+```
 
-### `rekey`
+1. **record** — each step runs as the shipped binary, pointed by `HEYL_ENDPOINT` at a **recording
+   proxy** on loopback: it decodes each call, forwards it to the real backend, keeps what crossed,
+   and encodes the reply back. The calls are heylogin's own, in the order the product actually asks
+   for them, because it *is* the product asking — and the binary carries no recording code, only the
+   endpoint flag it already ships with. The proxy and the replay server are the same server over a
+   different `HeyloginApi`. stdin is piped but stdout and stderr are inherited: `render_qr` tests
+   *stdout* for a terminal while `is_interactive` tests *stdin*, so a pairing code draws for your
+   phone while the binary still takes the branch a replay takes.
+2. **rekey** — every secret becomes synthetic while the real heylogin *plaintext* stays: genuine
+   `serialize` framing, genuine snappy, a genuine heymerge document. This exists because the seed
+   alone is full account access (login is just `sign(challenge, login_key(seed))`; the recovery code
+   is only a way to reach it), so committing the throwaway account's seed would burn it. It asserts
+   both halves before writing — that the committed test code opens the result, and that the real one
+   does not. The second half catches a layer the re-key forgot: a fixture the account's own code
+   still opens is one that still contains it. It **operates on typed messages**, not frames, so a
+   re-key is rewriting fields.
+3. **replay** and 4. **expect** — the scenario suite itself, run with `HEYL_BLESS=1`, so there is one
+   replay implementation rather than two that must agree:
 
-Turns a real recorded exchange into a committable fixture whose key material is
-entirely synthetic — a synthetic recovery code, Argon2id salt and checksum, and
-every layer re-encrypted under the seed they derive — while keeping the real
-heylogin *plaintext*: genuine `serialize` framing, genuine snappy, a genuine
-heymerge document.
+```sh
+HEYL_BLESS=1 cargo test -p heyl --features test-ports scenario::recovery_then_doctor
+```
 
-This exists because the seed alone is full account access (login is just
-`sign(challenge, login_key(seed))`; the recovery code is only a way to reach
-it), so committing the throwaway account's seed would burn it.
+Expectations come from *that* run rather than the live one: the re-key moves identifiers, and live
+output would carry the real account's. Replaying also proves the re-keyed scenario actually drives
+the binary rather than merely parsing.
 
-It asserts both halves before writing: that the committed test code opens the
-result, and that the real one does not. The second half is what catches a layer
-the re-key forgot — a fixture the account's own code still opens is one that
-still contains it.
+Between phases 1 and 2 the calls hold **real key material and a live token**. They stay in memory
+and are never written — `--no-rekey` is the one path that writes them down, for debugging a
+recording that went wrong, and it says so.
 
-**Operates on typed messages**, not frames: a re-key is rewriting fields, which
-is why the frame-splitting machinery is gone.
-
-The corpus in `tests/fixtures/api/base` was not produced by a fresh recording —
-it was migrated from the gRPC-Web fixture M2 captured, because that recording
-holds the one shape no later one can reproduce: a `CreateChallenge` that still
-lists a push authenticator, which performing the recovery deletes. The
-migration ran once and its tooling went with the wire fixture; both are in git
-history.
+`recovery-then-doctor.json` was not produced this way: it was converted from the corpus M2 captured,
+because that recording holds the one shape no later one can reproduce — a `CreateChallenge` that
+still lists a push authenticator, which performing the recovery deletes. It carries no request
+bodies for the same reason its predecessor did not, so its calls match on method and order alone.
 
 **What no fixture can carry.** Evidence that our context salts match
 heylogin's. Re-keyed ciphertexts are made with our own salts, so they prove the

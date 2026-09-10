@@ -18,6 +18,14 @@ workspace = true
 # `cargo tree`, and a feature is the only gate `cargo tree` agrees with.
 api = ["dep:prost-reflect", "dep:serde", "dep:serde_json"]
 
+# heylogin on loopback: the corpus served over a real socket, or a proxy that
+# forwards to the real backend and keeps what crossed. Both are the same
+# server over a different `HeyloginApi`, which is what lets the shipped binary
+# record a scenario with no recording code of its own -- it only needs
+# `--endpoint`. Separate from `api` so `heyl --features api` does not drag an
+# HTTP server into a build someone might actually run.
+server = ["api", "dep:hyper", "dep:http-body-util"]
+
 [build-dependencies]
 prost       = { workspace = true }
 prost-build = { workspace = true }
@@ -34,6 +42,8 @@ base64       = { workspace = true }
 bytes        = { workspace = true }
 http         = { workspace = true }
 http-body    = { workspace = true }
+http-body-util = { workspace = true, optional = true }
+hyper        = { workspace = true, optional = true, features = ["server", "http1"] }
 hyper-rustls = { workspace = true }
 hyper-util   = { workspace = true }
 prost        = { workspace = true }

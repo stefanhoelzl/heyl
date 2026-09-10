@@ -804,10 +804,16 @@ nothing asks. `heyl api derive` prints seeds and vault keys to the terminal. A c
 over 123 methods, most of which nobody has studied, would give confidence proportional to the
 curation rather than to the danger, so there is none. **Point it at a throwaway account.**
 
-That is why it is gated twice: a **default-off cargo feature**, so `prost-reflect` and the
-embedded descriptor are absent from the release dependency graph entirely (a property `cargo tree`
-can check, which `cfg(debug_assertions)` would not give), and `hide = true` so it does not appear
-in `--help` even in a build that has it.
+That is why it is gated by a **default-off cargo feature**, so `prost-reflect` and the embedded
+descriptor are absent from the release dependency graph entirely — a property `cargo tree` can
+check, which `cfg(debug_assertions)` would not give.
+
+It is **not** hidden from `--help`. It was, once, on the reasoning that a dangerous command
+should be hard to stumble into. That was the wrong trade: the feature is the gate, and a build
+that has the command should admit it. Hiding a compiled-in command makes `--help` an unreliable
+account of what the binary can do — which costs the reader trust in every *other* line of it,
+to buy obscurity against someone who is reading the source anyway. The danger belongs in the
+help text, where it is now, rather than in the absence of any.
 
 Four subcommands. One makes a call; the other three are pure functions with no network at all,
 and together they close the loop — a login is RPCs plus exactly two pieces of arithmetic:

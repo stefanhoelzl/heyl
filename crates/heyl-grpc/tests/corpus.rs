@@ -184,34 +184,91 @@ async fn no_token_reaches_the_corpus() {
 }
 
 #[test]
-fn a_corpus_round_trips_through_the_filesystem() {
-    let dir = std::env::temp_dir().join(format!("heyl-corpus-{}", std::process::id()));
+fn a_scenario_round_trips_through_the_filesystem() {
+    let dir = std::env::temp_dir().join(format!("heyl-scenario-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
+    let path = dir.join("round-trip.json");
 
-    let record = Record {
-        method: "/domain.SyncService/Sync".to_owned(),
-        request: None,
-        responses: vec![serde_json::json!({ "syncUpdate": { "tokenRefreshNeeded": true } })],
-        error: None,
+    let scenario = corpus::Scenario {
+        meta: corpus::Meta {
+            code: "1111-2222-3333-4444-5555-6666".to_owned(),
+            session_seed: "ERERERERERERERERERERERERERERERERERERERERERE=".to_owned(),
+            note: None,
+        },
+        steps: vec![
+            corpus::Step {
+                argv: vec!["recovery".to_owned(), "--confirm".to_owned()],
+                stdin: Some("1111-2222-3333-4444-5555-6666\n".to_owned()),
+                exit: 0,
+                redact: Vec::new(),
+                calls: vec![Record {
+                    method: "/domain.SyncService/Sync".to_owned(),
+                    request: None,
+                    responses: vec![
+                        serde_json::json!({ "syncUpdate": { "tokenRefreshNeeded": true } }),
+                    ],
+                    error: None,
+                }],
+                stdout: Some(serde_json::json!({ "userId": "u" })),
+            },
+            corpus::Step {
+                argv: vec!["doctor".to_owned()],
+                stdin: None,
+                exit: 3,
+                redact: vec!["/summary/elapsed".to_owned()],
+                calls: Vec::new(),
+                stdout: None,
+            },
+        ],
     };
-    let path = corpus::write(&dir, 0, &record).expect("writes");
+    scenario.write(&path).expect("writes");
+
+    let loaded = corpus::Scenario::load(&path).expect("loads");
+    assert_eq!(loaded.steps.len(), 2);
+    assert_eq!(loaded.steps[0].calls[0].method, "/domain.SyncService/Sync");
+    assert_eq!(
+        loaded.steps[0].stdin.as_deref(),
+        Some("1111-2222-3333-4444-5555-6666\n")
+    );
+    // A step that has not been blessed yet is legible as such rather than as
+    // an empty expectation, which would pass against a command printing
+    // nothing.
+    assert!(loaded.steps[1].stdout.is_none());
+    assert_eq!(loaded.steps[1].exit, 3);
+    assert_eq!(loaded.session_seed().expect("32 bytes"), [0x11; 32]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A step's calls answer that step, and no other.
+///
+/// The flat corpus this replaced had one cursor for a whole session, so a call
+/// made during the wrong invocation still found a record — silently, which is
+/// the worst way for a fixture to be wrong.
+#[tokio::test]
+async fn a_step_answers_only_its_own_calls() {
+    let context = ClientContext::default();
+    let recorder = RecordingApi::new(Backend);
+    recorder
+        .sync_sync(context.request(heyl_proto::SyncRequest::default()))
+        .await
+        .expect("the backend answers");
+
+    let first = RecordedApi::new(recorder.records());
     assert!(
-        path.ends_with("01-sync.json"),
-        "records are numbered so lexical order is call order: {}",
-        path.display()
+        first
+            .sync_sync(context.request(heyl_proto::SyncRequest::default()))
+            .await
+            .is_ok()
     );
 
-    corpus::Meta {
-        code: "1111-2222-3333-4444-5555-6666".to_owned(),
-        session_seed: "ERERERERERERERERERERERERERERERERERERERERERE=".to_owned(),
-    }
-    .write(&dir)
-    .expect("writes meta");
-
-    let loaded = corpus::load(&dir).expect("loads");
-    assert_eq!(loaded.len(), 1, "_meta.json is not a call");
-    assert_eq!(loaded[0].method, record.method);
-    assert!(corpus::Meta::load(&dir).is_ok());
-
-    let _ = std::fs::remove_dir_all(&dir);
+    // A second step, with its own calls: this one records none, so the same
+    // call has nothing to match.
+    let second = RecordedApi::new(Vec::new());
+    assert!(matches!(
+        second
+            .sync_sync(context.request(heyl_proto::SyncRequest::default()))
+            .await,
+        Err(ApiError::Unimplemented { .. })
+    ));
 }

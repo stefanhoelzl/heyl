@@ -67,14 +67,6 @@ pub struct ScriptedTerminal {
 }
 
 impl ScriptedTerminal {
-    /// A terminal that is not a TTY, and so cannot be asked anything.
-    pub fn non_interactive() -> Self {
-        Self {
-            interactive: false,
-            answers: Mutex::new(Vec::new()),
-        }
-    }
-
     /// Answer these, in order.
     pub fn with(answers: &[&str]) -> Self {
         Self {

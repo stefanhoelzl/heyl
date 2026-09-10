@@ -1,9 +1,0 @@
-{
-  "method": "/domain.CredentialService/CreateTokens",
-  "responses": [],
-  "error": {
-    "status": 3,
-    "domain_code": 30460,
-    "message": "Invalid session type"
-  }
-}

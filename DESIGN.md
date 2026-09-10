@@ -238,7 +238,7 @@ in error messages, and never passed as command-line arguments to child processes
 ```
 heyl/
 ├── descriptors/              heylogin.binpb — the sole committed schema artifact
-├── tests/fixtures/protocol/  recorded gRPC-Web exchanges (M0)
+├── tools/heyl-fixtures/      records a scenario against a real account, and re-keys it
 ├── tools/extract-protos.py   regeneration + round-trip verification
 └── crates/
     ├── heyl-crypto/      §2 primitives, KDF, typed contexts       [leaf, deterministic]
@@ -279,8 +279,8 @@ nonce would make the output unpinnable.
 
 **Ports and adapters — including the backend.** Nothing above the adapters may reference an OS
 API *or the wire protocol*. `HeylApi` is a driven port like any other, so `heyl-app` cannot tell
-gRPC from a fake, and the recorded exchanges in `tests/fixtures/protocol/` are replayed against a
-fake implementation of it. `heyl-app` depends on the port traits, not on `tokio`; the runtime
+gRPC from a fake, and the recorded exchanges in `crates/heyl-grpc/tests/protocol/` are replayed
+against a fake implementation of it. `heyl-app` depends on the port traits, not on `tokio`; the runtime
 lives in `heyl-cli`.
 
 **Below that port, two layers rather than one** — added at M3, because the client had a
@@ -384,7 +384,7 @@ every other request this client makes says `400`.
 `domain.Status` in `errors.proto` is structurally identical to `google.rpc.Status`, so the
 schema decodes its own error envelope with no extra dependency. The backend distinguishes
 absent credentials (status 16, `DomainError` 30100) from rejected ones (status 7, 30420).
-Four exchanges are recorded in `tests/fixtures/protocol/`.
+Four exchanges are recorded in `crates/heyl-grpc/tests/protocol/`.
 
 **Codegen stack — measured, not assumed.** M0 built the whole surface twice, at full parity.
 Both stacks consume `descriptors/heylogin.binpb` directly (`connectrpc_build::Config::
@@ -829,7 +829,7 @@ heyl api call Sync > sync.json                     → the account
 
 Nothing is ambient: no keychain is read, and the token is a field on the request. `heyl api call
 Sync --token ''` reproduces `DomainError 30100` against the live backend and `--token bad`
-reproduces 30420 — which is how M0 produced `tests/fixtures/protocol/sync-unauthenticated` and
+reproduces 30420 — which is how M0 produced `crates/heyl-grpc/tests/protocol/sync-unauthenticated` and
 `sync-bad-token` by hand, with a shell script.
 
 `heyl api decode` stops at the serialization framing, because heymerge semantics and the content
@@ -927,28 +927,34 @@ not one-time, and it unlocks every vault).
 | Framing | A gRPC-Web body built at chosen sizes and frame counts, through the transport seam | authoritative, and it can ask sizes a recording never happened to contain | No |
 | Generated surface | Two shape tests — unary and server-streaming — plus the trait's completeness against the descriptor set | authoritative for the generator | No |
 | Record ↔ replay | Round trip: record against a stub, replay the records, compare | authoritative | No |
-| **Use cases** | `heyl-app` over `DomainApi<RecordedApi>` — **real heylogin messages, through the real mapping** | authoritative for everything but the context salts | No |
-| Port adapters | Fake `SecretStore` / `Terminal` / `ProcessRunner` / `Clock` / `RandomSource`; the suite never touches a real keychain | — | No |
-| End-to-end, live | `tools/heyl-fixtures` against a real account — a **tool**, never a test | authoritative | Yes |
+| **End to end** | The shipped binary, argv to stdout, over a real socket to a corpus-backed gRPC-Web server | authoritative for everything but the context salts | No |
+| Port adapters | The terminal and clock are real; a scenario injects only a writable store and the draw sequence | — | No |
+| Live confirmation | `tools/heyl-fixtures` against a real account — a **tool**, never a test | authoritative | Yes |
 
-**The corpus is the single description of an account.** Before it there were two
-descriptions and neither was heylogin's: a 658-line hand-built account in `heyl-app`'s tests,
-which could only ever confirm that our code agreed with itself, and a wire recording that no
-layer above the transport could reach. Recording at `HeyloginApi` — prost messages, one file per
-call — replaced both, and the vault documents in it are heylogin's own bytes.
+**A scenario is a list of `heyl` invocations, and the file it lives in is the whole test.** It
+holds what you wrote — the `argv`, `stdin` and expected exit of each step — and what `record`
+filled in: the calls that step made against a real account, and the JSON it printed. `cargo test`
+replays it against the shipped binary; nothing else is needed to read one.
 
-Records are **pre-mapping**: they hold what the backend sent, not what we understood it to mean,
-so a change to `map.rs` does not invalidate them and a record can be re-read as understanding
-improves. A **situation** is a whole corpus on disk under `tests/fixtures/api/<name>/`,
-materialised from `base/` by `heyl-fixtures derive`; `diff -r` against the base is the entire
-difference from reality. Situations cover what no backend produces on demand — an expired unlock,
-a token due for rotation, `DomainError 30460`.
+The **corpus is an input, not an expectation**: the assertion is the exit code and the JSON on
+stdout, never the traffic. Records are also **pre-mapping** — they hold what the backend sent, not
+what we understood it to mean — so a change to `map.rs` does not invalidate a scenario and a
+recording can be re-read as understanding improves.
+
+Every scenario is **recorded independently**; none is a copy of another. That is affordable because
+`heyl api` reaches past what the guarded commands do: `DomainError 30460` comes from a
+`CreateTokens` with a browser-family `--client-type`, a rejected signature from one with a corrupted
+body, an expired unlock from `session lock` followed by `doctor --wait 1`. The one exception is
+`token_refresh_needed`, which the backend sets as a token ages and `CreateTokensRequest` has no
+field to ask for; that scenario is hand-made and says so in its own `meta.note`.
 
 Two rules keep it committable. **No token is ever written**: the bearer token is metadata on a
 `Request<T>`, so the recorder sees it, and it is dropped at the point of recording rather than
 redacted afterwards, because a redaction step that runs later is one that can be forgotten. And
-**the corpus must open with the committed test code and with nothing else** — `rekey` asserts
-both halves before writing, which is what catches a layer the re-key forgot.
+**the corpus must open with the committed test code and with nothing else** — the re-key asserts
+both halves before writing, which is what catches a layer it forgot. The re-key replaces exactly
+what the seed could be recovered from; its breadth is a *consequence* of replacing the seed, since
+everything derived from it must then be rebuilt, and it deliberately keeps the real plaintext.
 
 **No automated test ever touches a real account.** The line is: tests replay recorded flows; only
 `tools/` talks to heylogin. A live confirmation is a deliberate act someone performs, never a test
@@ -968,12 +974,33 @@ fails the pull request that introduced it rather than being discovered whenever 
 that platform. That is also the reason `.ship/gates.sh` no longer claims to mirror CI completely;
 one machine cannot.
 
-**Recorded flows replay at the wire, not at the port.** The fixtures are re-keyed response *bytes*
-fed through the real adapter, because the two defects M2 actually shipped — a lock-mapping rule and
-reading `DomainError` from the wrong `tonic` API — both lived in `heyl-grpc`, and one of them passed
-green precisely because the test hand-built the `Status` the way the broken code read it. A
-port-level fake cannot catch either, by construction. `heyl-app`'s own use-case tests keep using a
-fake `HeylApi` with hand-built domain objects, where recorded bytes would only obscure things.
+**A scenario replays through the transport, not past it.** The corpus is served over a loopback
+socket as gRPC-Web, by a server whose 122 decode-call-encode arms come from the same descriptor walk
+that generates the client. **The same server records.** `serve` takes any `HeyloginApi`, so a corpus
+behind it makes a replay and a `RecordingApi` over a real client makes a recording proxy — which is
+why the binary has no recording code of its own and `--endpoint`, a flag it already ships with, is
+the whole of what a recording needs. That matters because the two defects M2 actually shipped — a lock-mapping
+rule and reading `DomainError` from the wrong `tonic` API — both lived in `heyl-grpc`, and one
+passed green precisely because the test hand-built the `Status` the way the broken code read it. A
+port-level fake cannot catch either, by construction.
+
+**Only two ports are injected, and neither is a fake.** Randomness, because a recorded unlock grant
+is sealed to the session key the recording derived, so a replay must draw the same bytes — the
+scenario states them. And the keychain, because the steps of a scenario are separate processes:
+`KeyringStore` would write into the user's own login keyring and is absent on CI, and
+`HeadlessSecretStore` cannot write at all. Both live behind a default-off `test-ports` feature, so
+a writable on-disk credential store cannot exist in a binary anyone gets (§3); it adds no
+dependency, so the graph `cargo tree` reports is identical either way. The terminal stays
+real — a step's stdin is piped, which is why the confirmation prompt is the one path a scenario
+cannot reach — and so does the clock: nothing compares an expiry against `now()`, and the only port
+sleep is the one-second pacing of the unlock poll, which costs a scenario whatever its recording
+contains.
+
+**Test data lives beside the test that reads it.** A scenario is
+`crates/heyl-cli/tests/scenarios/<name>.json`, the upstream vectors are in
+`crates/heyl-crypto/tests/upstream/`, M0's exchanges in `crates/heyl-grpc/tests/protocol/`. There is
+no shared fixture tree: each of those had exactly one reader, and a crate that owns its evidence
+needs no `../..` to reach it.
 
 **Nothing that is or verifies a secret is ever committed.** The re-key replaces, rather than
 redacts: the recovery code, the seed, `secretInfo.checksum` (it is `SHA512(seed)[:32]` — an offline
@@ -995,7 +1022,7 @@ so instead the oracle is **staged through M2**:
 
 That is why the derivation snapshots are stored **one per link** rather than as a single blob: a
 failure at M2 or M3 then names the link instead of pointing at "crypto". Authoritative vectors
-live in `tests/fixtures/crypto/upstream/` as committed JSON and must never change silently;
+live in `crates/heyl-crypto/tests/upstream/` as committed JSON and must never change silently;
 regression values are `insta` snapshots, where a diff surfacing in `cargo insta review` is exactly
 the intended signal.
 
@@ -1032,6 +1059,12 @@ reached has been more useful than mechanically shifting the numbers. What remain
 - ~~**Phone swipe**~~ — done: `CreateLongPollChannelChallenge`, QR rendering behind the
   `Terminal` port, seed from the channel, `CreateTokens`. Polarity is exposed as `--qr`, because
   a code drawn for the wrong background renders perfectly and simply will not scan.
+- ~~**Scenario tests**~~ — done: the e2e suite is one JSON file per scenario — the invocations, the
+  traffic they made, the output they must print — replayed against the shipped binary over a
+  loopback gRPC-Web socket served from the recording. `build.rs` emits one test per file, so
+  dropping a recording in is the whole act of adding a scenario. `derive` and the per-call fixture
+  tree are gone; `record` and `rekey` are one command, so a raw recording need never be written to
+  disk. What is left is recording the session surface, which needs a phone.
 - ~~**Session registration**~~ — done: `SessionMetadata` write, tombstone on `session remove`,
   `session list`, and the phone-swipe pairing it needs. What is left is the read path using it.
 - **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy.

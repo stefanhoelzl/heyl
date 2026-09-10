@@ -1,6 +1,6 @@
 //! M0's recorded exchanges, replayed against the error decoder.
 //!
-//! These are the four fixtures in `tests/fixtures/protocol/`, captured against
+//! These are the four fixtures in `tests/protocol/`, captured against
 //! `https://heylogin.app/api/v1` during the M0 spike. They are the reason the
 //! error taxonomy exists in the shape it does, and replaying them here means a
 //! change to the decoding is caught without an account, a network, or a
@@ -12,7 +12,7 @@
 use heyl_grpc::{decode_details_base64, to_api_error};
 use heyl_ports::ApiError;
 
-const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/protocol");
+const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/protocol");
 
 /// Pull one header value out of a recorded `.http` exchange.
 fn header(fixture: &str, name: &str) -> Option<String> {

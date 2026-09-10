@@ -97,6 +97,11 @@ enum Command {
         /// nobody was there to object.
         #[arg(long)]
         confirm: bool,
+
+        /// Output format. `json` is **unstable** until the output contract
+        /// lands with `list` and `get`.
+        #[arg(long, value_enum, default_value_t = output::Format::Human)]
+        format: output::Format,
     },
 
     /// UNSAFE — heylogin's gRPC surface by hand, with no guards.
@@ -283,7 +288,11 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
             }
         },
 
-        Command::Recovery { email, confirm } => {
+        Command::Recovery {
+            email,
+            confirm,
+            format,
+        } => {
             let email = match email {
                 Some(email) => email,
                 None => ports.terminal.prompt_line("heylogin email: ")?,
@@ -301,7 +310,7 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
                 heyl_domain::SessionType::BackupCode,
             )
             .await?;
-            output::recovery(&outcome);
+            output::recovery(&outcome, format);
             Ok(std::process::ExitCode::SUCCESS)
         }
 

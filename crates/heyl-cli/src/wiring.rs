@@ -13,6 +13,14 @@ pub struct Adapters {
     terminal: SystemTerminal,
     clock: SystemClock,
     random: OsRandom,
+
+    /// The keychain and draw sequence a scenario supplied, when one did.
+    ///
+    /// One object serves both ports because they are chosen together: a run
+    /// with a scenario's store but the OS random source would fail deep inside
+    /// a decryption, for a reason that looks nothing like the cause.
+    #[cfg(feature = "test-ports")]
+    scenario: Option<heyl_platform::TestState>,
 }
 
 impl Adapters {
@@ -29,7 +37,8 @@ impl Adapters {
 
         // The headless store is an adapter swap, not a special case threaded
         // through the code: it is what makes CI work on a box with no Secret
-        // Service (DESIGN.md §5).
+        // Service (DESIGN.md §5). The scenario suite is a third swap of the
+        // same kind — see `ports`.
         let store: Box<dyn SecretStore> = if HeadlessSecretStore::is_configured() {
             Box::new(HeadlessSecretStore)
         } else {
@@ -47,11 +56,35 @@ impl Adapters {
             terminal: SystemTerminal,
             clock: SystemClock,
             random: OsRandom,
+
+            // Present only in a build made with `--features test-ports`, which
+            // is what keeps a writable on-disk credential store out of every
+            // binary a user can get (DESIGN.md §3).
+            #[cfg(feature = "test-ports")]
+            scenario: heyl_platform::TestState::from_env()
+                .map_err(|reason| AppError::Api(heyl_ports::ApiError::Transport { reason }))?,
         })
     }
 
     /// Borrow them as the core expects.
     pub fn ports(&self) -> Ports<'_> {
+        #[cfg(feature = "test-ports")]
+        if let Some(scenario) = &self.scenario {
+            return Ports {
+                api: &self.api,
+                store: scenario,
+                terminal: &self.terminal,
+                clock: &self.clock,
+                // A recording binds the store but keeps the OS random source,
+                // so `rekey` has real material to substitute.
+                random: if scenario.drives_randomness() {
+                    scenario
+                } else {
+                    &self.random
+                },
+            };
+        }
+
         Ports {
             api: &self.api,
             store: self.store.as_ref(),

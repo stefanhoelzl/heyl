@@ -30,7 +30,7 @@
 //! The rule that makes it checkable: **the fixture must open with the
 //! committed test seed and with nothing else.** `verify` asserts exactly that.
 
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 use heyl_crypto::{EncryptionPrivateKey, Nonce, SecretSalt, Seed, SymKey, recovery};
 use heyl_domain::{
@@ -385,26 +385,30 @@ fn sigkey(
         .map_err(|e| format!("deriving a signing key: {e}"))
 }
 
-/// Re-key a recording into a committable fixture.
+/// Re-key a recording in place, and state what a replay must draw.
+///
+/// Works on the calls rather than on files: a scenario is one document now, and
+/// its steps are put back together by the caller. The rule that makes the
+/// result committable is unchanged — it must open with the committed test code
+/// and **not** with the real one, which [`verify`] asserts before this returns.
 ///
 /// # Errors
-/// If the recording is unreadable, `HEYL_RECOVERY_CODE` does not match the
-/// account it was taken from, or any layer fails to open.
-pub fn run(input: &Path, out: &Path) -> Result<(), String> {
+/// If `HEYL_RECOVERY_CODE` does not match the account the recording was taken
+/// from, or any layer fails to open.
+pub fn apply(records: &mut [Record]) -> Result<heyl_grpc::Meta, String> {
     use base64::Engine as _;
 
     let code = std::env::var("HEYL_RECOVERY_CODE")
         .map_err(|_| "set HEYL_RECOVERY_CODE — the real chain must be opened once".to_owned())?;
-    let mut records = heyl_grpc::corpus::load(input).map_err(|e| e.to_string())?;
 
-    let real = real_chain(&records, &code)?;
+    let real = real_chain(records, &code)?;
     let backup_id = real.keys.id();
     let mut test = TestChain::new(backup_id)?;
     let rng = Deterministic::new();
     let b64 = base64::engine::general_purpose::STANDARD;
     let mut vault_index = 0usize;
 
-    for record in &mut records {
+    for record in records.iter_mut() {
         let path = record.method.clone();
         // The request carries a signature over a challenge and, on
         // CreateTokens, a sealed seed. Replay matches on method and order for
@@ -467,23 +471,17 @@ pub fn run(input: &Path, out: &Path) -> Result<(), String> {
         }
     }
 
-    if out.exists() {
-        std::fs::remove_dir_all(out).map_err(|e| format!("clearing {}: {e}", out.display()))?;
-    }
-    for (index, record) in records.iter().enumerate() {
-        heyl_grpc::corpus::write(out, index, record).map_err(|e| e.to_string())?;
-    }
-    heyl_grpc::corpus::Meta {
+    verify(records, &code)?;
+    eprintln!(
+        "  rekeyed {} calls; opens with the test seed, and not with the real one",
+        records.len()
+    );
+
+    Ok(heyl_grpc::Meta {
         code: TEST_CODE.to_owned(),
         session_seed: b64.encode(FIXTURE_SESSION_SEED),
-    }
-    .write(out)
-    .map_err(|e| e.to_string())?;
-
-    verify(out, &code)?;
-    eprintln!("wrote {} records to {}", records.len(), out.display());
-    eprintln!("verified: the fixture opens with the test seed, and not with the real one.");
-    Ok(())
+        note: None,
+    })
 }
 
 /// `RecoverySecretInfo` for the synthetic code.
@@ -566,14 +564,12 @@ fn rekey_commits(
 /// **It must open with the test seed, and it must not open with the real one.**
 /// The second half is what catches a layer the re-key forgot: a fixture that
 /// still opens with the account's real key is one that still contains it.
-fn verify(fixture: &Path, real_code: &str) -> Result<(), String> {
-    let records = heyl_grpc::corpus::load(fixture).map_err(|e| e.to_string())?;
-
+fn verify(records: &[Record], real_code: &str) -> Result<(), String> {
     // The committed code opens it.
     let derived = recovery::derive_recovery_seed(TEST_CODE, TEST_SALT, TEST_PARAMS)
         .map_err(|e| format!("{e}"))?;
     let challenge: heyl_proto::CreateChallengeResponse =
-        response_message(&records, "/CreateChallenge", 0)?;
+        response_message(records, "/CreateChallenge", 0)?;
     let backup = challenge
         .authenticators
         .iter()

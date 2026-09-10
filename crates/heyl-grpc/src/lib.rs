@@ -44,6 +44,8 @@ pub mod status;
 pub mod corpus;
 #[cfg(feature = "api")]
 pub mod json;
+#[cfg(feature = "server")]
+pub mod server;
 
 pub use client::{GrpcClient, GrpcConfig, Transportable};
 pub use domain::DomainApi;
@@ -89,14 +91,19 @@ mod generated {
 
     #[cfg(feature = "api")]
     include!(concat!(env!("OUT_DIR"), "/dispatch.rs"));
+
+    #[cfg(feature = "api")]
+    include!(concat!(env!("OUT_DIR"), "/serve.rs"));
 }
 
 pub use generated::{HeyloginApi, METHODS};
 
 #[cfg(feature = "api")]
-pub use corpus::{Record, RecordedApi, RecordingApi};
+pub use corpus::{Meta, Record, RecordedApi, RecordingApi, Scenario, Step};
 #[cfg(feature = "api")]
-pub use generated::dispatch;
+pub use generated::{dispatch, serve};
+#[cfg(feature = "server")]
+pub use server::Server;
 
 /// One RPC in the schema.
 ///

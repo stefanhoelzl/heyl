@@ -111,6 +111,18 @@ jobs:
       # account; they are excluded from the release and must not be shipped.
       - run: cargo build --release -p heyl --target ${{ matrix.target }}
 
+      # The artifact is the first thing a user runs, and nothing above ever
+      # starts it: the tests are a debug build, and `cargo build` only proves the
+      # thing linked. `--help` is enough to be worth having, because `main` runs
+      # `harden_process()` before clap ever sees argv -- it mlocks, and on
+      # Windows raises the working-set quota -- so this fails on a target where
+      # hardening cannot succeed, in the profile that actually ships, rather
+      # than leaving a binary nobody has run to be discovered by whoever
+      # downloads it.
+      - name: Smoke the release binary
+        shell: bash
+        run: ./target/${{ matrix.target }}/release/${{ matrix.bin }} --help
+
       # The raw binary, unpackaged. `upload-artifact` re-zips whatever it is
       # given and does not preserve the executable bit, so a download needs
       # `chmod +x` -- accepted, in exchange for no packaging step here. Real

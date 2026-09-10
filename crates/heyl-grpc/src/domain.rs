@@ -18,29 +18,16 @@
 //! client and against a recorded one.
 
 use heyl_domain::{
-    Authenticator, AuthenticatorId, Challenge, SessionType, SyncSnapshot, Tokens, VaultCommits,
-    VaultId,
+    Authenticator, AuthenticatorId, Challenge, CommitId, SessionId, SessionType, SyncSnapshot,
+    Timestamp, Tokens, VaultCommits, VaultId,
 };
-use heyl_ports::{ApiError, HeylApi, api::SessionUnlockGrant};
+use heyl_ports::{
+    ApiError, HeylApi,
+    api::{LongPollChallenge, SessionUnlockGrant, SessionUpdate},
+};
 use tokio::sync::RwLock;
 
 use crate::{ClientContext, HeyloginApi, map};
-
-/// What a completed phone-swipe channel hands back (§5).
-#[derive(Debug, Clone)]
-pub struct LongPollChallenge {
-    /// The account.
-    pub user_id: String,
-    /// The challenge to sign.
-    pub challenge: String,
-    /// Which authenticator the phone answered with.
-    pub authenticator_id: AuthenticatorId,
-    /// `asymEncrypt(ourLongPollPubKey, seed)`.
-    pub encrypted_secret: Vec<u8>,
-    /// Whether this was a registration rather than a login. The client only
-    /// self-grants an unlock when it is *not* a registration.
-    pub registration: bool,
-}
 
 /// How many times an idempotent read is retried after a transport fault.
 const READ_RETRIES: usize = 3;
@@ -110,68 +97,6 @@ impl<A: HeyloginApi> DomainApi<A> {
 
     async fn context(&self) -> ClientContext {
         self.context.read().await.clone()
-    }
-
-    /// `CredentialService.CreateLongPollChannelChallenge` — the phone-swipe
-    /// channel (§5).
-    ///
-    /// **Long-polls**: the call does not return until a phone completes the
-    /// channel or the backend gives up. Not on `HeylApi` yet — the phone-swipe
-    /// flow is a later milestone, and this exists so its reachability can be
-    /// established before the port grows a method for it.
-    ///
-    /// # Errors
-    /// [`ApiError`] on any transport or backend failure.
-    pub async fn create_long_poll_channel_challenge(
-        &self,
-        public_key_hash: &str,
-    ) -> Result<LongPollChallenge, ApiError> {
-        let context = self.context().await;
-        let response = self
-            .api
-            .credential_create_long_poll_channel_challenge(context.request(
-                heyl_proto::CreateLongPollChannelChallengeRequest {
-                    public_key_hash: public_key_hash.to_owned(),
-                },
-            ))
-            .await?;
-
-        let authenticator =
-            response
-                .authenticator
-                .as_ref()
-                .ok_or_else(|| ApiError::MalformedResponse {
-                    what: "CreateLongPollChannelChallengeResponse.authenticator".to_owned(),
-                })?;
-
-        // The reply is an `AuthenticatorReply` protobuf whose
-        // `encrypted_secret_reply.encrypted_secret` is
-        // `asymEncrypt(ourPubKey, seed)`.
-        let reply = <heyl_proto::AuthenticatorReply as prost::Message>::decode(
-            &*response.authenticator_reply.clone(),
-        )
-        .map_err(|_| ApiError::MalformedResponse {
-            what: "authenticator_reply is not an AuthenticatorReply".to_owned(),
-        })?;
-        let Some(heyl_proto::authenticator_reply::ReplyOneof::EncryptedSecretReply(secret)) =
-            reply.reply_oneof
-        else {
-            return Err(ApiError::MalformedResponse {
-                what: "authenticator_reply carries no encrypted secret".to_owned(),
-            });
-        };
-
-        Ok(LongPollChallenge {
-            user_id: response.user_id.clone(),
-            challenge: response.challenge.clone(),
-            authenticator_id: AuthenticatorId::parse(&authenticator.id).map_err(|_| {
-                ApiError::MalformedResponse {
-                    what: "long-poll authenticator id is not a UUID".to_owned(),
-                }
-            })?,
-            encrypted_secret: secret.encrypted_secret,
-            registration: secret.registration,
-        })
     }
 }
 
@@ -289,6 +214,138 @@ impl<A: HeyloginApi> HeylApi for DomainApi<A> {
                 .collect()
         })
         .await
+    }
+
+    async fn create_long_poll_channel_challenge(
+        &self,
+        public_key_hash: &str,
+    ) -> Result<LongPollChallenge, ApiError> {
+        let context = self.context().await;
+        let response = self
+            .api
+            .credential_create_long_poll_channel_challenge(context.request(
+                heyl_proto::CreateLongPollChannelChallengeRequest {
+                    public_key_hash: public_key_hash.to_owned(),
+                },
+            ))
+            .await?;
+
+        let authenticator =
+            response
+                .authenticator
+                .as_ref()
+                .ok_or_else(|| ApiError::MalformedResponse {
+                    what: "CreateLongPollChannelChallengeResponse.authenticator".to_owned(),
+                })?;
+
+        // The reply is an `AuthenticatorReply` protobuf whose
+        // `encrypted_secret_reply.encrypted_secret` is
+        // `asymEncrypt(ourPubKey, seed)`.
+        let reply = <heyl_proto::AuthenticatorReply as prost::Message>::decode(
+            &*response.authenticator_reply.clone(),
+        )
+        .map_err(|_| ApiError::MalformedResponse {
+            what: "authenticator_reply is not an AuthenticatorReply".to_owned(),
+        })?;
+        let Some(heyl_proto::authenticator_reply::ReplyOneof::EncryptedSecretReply(secret)) =
+            reply.reply_oneof
+        else {
+            return Err(ApiError::MalformedResponse {
+                what: "authenticator_reply carries no encrypted secret".to_owned(),
+            });
+        };
+
+        Ok(LongPollChallenge {
+            user_id: response.user_id.clone(),
+            challenge: response.challenge.clone(),
+            authenticator_id: AuthenticatorId::parse(&authenticator.id).map_err(|_| {
+                ApiError::MalformedResponse {
+                    what: "long-poll authenticator id is not a UUID".to_owned(),
+                }
+            })?,
+            encrypted_secret: secret.encrypted_secret,
+            registration: secret.registration,
+        })
+    }
+
+    async fn update_session(
+        &self,
+        session: SessionId,
+        update: SessionUpdate,
+    ) -> Result<(), ApiError> {
+        let context = self.context().await;
+        self.api
+            .session_update(context.request(heyl_proto::UpdateSessionRequest {
+                session_id: session.to_string(),
+                // `fields_to_update` selects what the *response* carries, not
+                // what is written: absent optional fields are left alone.
+                fields_to_update: Vec::new(),
+                client_settings: update.client_settings,
+                unlock_time_limit_minutes: update.unlock_time_limit_minutes,
+                ..Default::default()
+            }))
+            .await?;
+        Ok(())
+    }
+
+    async fn request_session_unlock(&self, source: &str) -> Result<(), ApiError> {
+        let context = self.context().await;
+        self.api
+            .session_request_session_unlock(context.request(
+                heyl_proto::RequestSessionUnlockRequest {
+                    source: source.to_owned(),
+                },
+            ))
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_session_unlock(&self, session: SessionId) -> Result<(), ApiError> {
+        let context = self.context().await;
+        self.api
+            .session_delete_session_unlock(context.request(
+                heyl_proto::DeleteSessionUnlockRequest {
+                    session_id: session.to_string(),
+                    // False: drop the grant *and* any request pending on it,
+                    // so `heyl session lock` calls off a mistaken unlock too.
+                    only_pending_request: false,
+                },
+            ))
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_session(&self, session: SessionId) -> Result<(), ApiError> {
+        let context = self.context().await;
+        self.api
+            .session_delete_session(context.request(heyl_proto::DeleteSessionRequest {
+                session_id: session.to_string(),
+            }))
+            .await?;
+        Ok(())
+    }
+
+    async fn create_commit(
+        &self,
+        vault: VaultId,
+        latest_commit: CommitId,
+        blob: Vec<u8>,
+        update_time: Timestamp,
+    ) -> Result<CommitId, ApiError> {
+        let context = self.context().await;
+        let response = self
+            .api
+            .vault_create_commit(context.request(heyl_proto::CreateCommitRequest {
+                vault_id: vault.to_string(),
+                latest_commit_id: latest_commit.to_string(),
+                new_commit_blob: blob,
+                update_time: Some(map::timestamp_to_proto(update_time)),
+                ..Default::default()
+            }))
+            .await?;
+        CommitId::parse(&response.commit_id).map_err(|_| ApiError::MalformedResponse {
+            what: "CreateCommitResponse.commit_id is not a UUID".to_owned(),
+        })
     }
 
     async fn list_commits(&self, vault: VaultId) -> Result<VaultCommits, ApiError> {

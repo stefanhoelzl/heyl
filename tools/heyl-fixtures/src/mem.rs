@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use heyl_ports::{PortError, SecretKey, SecretStore, Terminal};
+use heyl_ports::{PortError, QrStyle, SecretKey, SecretStore, Terminal};
 use zeroize::Zeroizing;
 
 /// A keychain that exists only for the length of the run.
@@ -71,5 +71,11 @@ impl Terminal for AnsweringTerminal {
     }
     fn note(&self, message: &str) {
         heyl_platform::SystemTerminal.note(message);
+    }
+
+    fn render_qr(&self, _payload: &str, _style: QrStyle) -> bool {
+        // A recording run has no terminal to draw on; the URL is what the
+        // operator scans.
+        false
     }
 }

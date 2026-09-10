@@ -66,7 +66,25 @@ pub struct Session {
     pub id: SessionId,
     /// When the current unlock lapses. The **effective** value, which is what
     /// the backend decided rather than what we asked for.
+    ///
+    /// A phone grant lands at `now + unlock_time_limit_minutes`, not at the
+    /// deadline the granter asked for, unless that deadline is sooner.
     pub unlocked_until: Option<Timestamp>,
+    /// When an unlock was last requested and not yet answered.
+    ///
+    /// Set by `RequestSessionUnlock` and cleared when the request is granted
+    /// or dismissed. It does **not** lapse on its own.
+    pub unlock_requested_at: Option<Timestamp>,
+    /// The server-enforced auto-lock, in minutes.
+    ///
+    /// The backend refuses 0 and accepts 1, whatever the web UI's menu offers.
+    pub unlock_time_limit_minutes: u32,
+    /// The session's `client_settings` string, verbatim.
+    ///
+    /// Every shipped heylogin client leaves this empty; heyl keeps its own
+    /// policy flags under a `heyl` key here, and preserves anything else it
+    /// finds.
+    pub client_settings: String,
 }
 
 /// A vault, as `SyncUpdate` describes it.

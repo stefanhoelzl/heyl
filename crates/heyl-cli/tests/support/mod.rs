@@ -10,7 +10,7 @@
 use std::sync::Mutex;
 
 use heyl_domain::Timestamp;
-use heyl_ports::{Clock, PortError, RandomSource, SecretKey, SecretStore, Terminal};
+use heyl_ports::{Clock, PortError, QrStyle, RandomSource, SecretKey, SecretStore, Terminal};
 use zeroize::Zeroizing;
 
 /// A keychain in memory.
@@ -109,6 +109,11 @@ impl Terminal for ScriptedTerminal {
         self.pop().map(Zeroizing::new)
     }
     fn note(&self, _message: &str) {}
+
+    /// Nothing to draw on under test; the URL is what a caller would use.
+    fn render_qr(&self, _payload: &str, _style: QrStyle) -> bool {
+        false
+    }
 }
 
 /// A clock frozen at a chosen instant.
@@ -119,6 +124,7 @@ pub struct FixedClock {
     pub deadline: Timestamp,
 }
 
+#[async_trait::async_trait]
 impl Clock for FixedClock {
     fn now(&self) -> Timestamp {
         self.now
@@ -126,6 +132,10 @@ impl Clock for FixedClock {
     fn next_unlock_deadline(&self) -> Timestamp {
         self.deadline
     }
+
+    /// Returns immediately: a test that waits for an approval should spend its
+    /// time on the assertion, not on the clock.
+    async fn sleep_millis(&self, _millis: u64) {}
 }
 
 /// Yields the corpus's session seed first, then counts.

@@ -132,6 +132,17 @@ impl Report {
 /// report that stops at the first problem is not a diagnostic.
 pub async fn run(ports: &Ports<'_>) -> Result<Report, AppError> {
     let session = unlock::run(ports).await?;
+    run_with(ports, session).await
+}
+
+/// The same, on a session the caller already unlocked.
+///
+/// Split out so an ordinary command can do the unlocking — which may mean
+/// asking the phone and waiting — before the report starts.
+///
+/// # Errors
+/// As [`run`].
+pub async fn run_with(ports: &Ports<'_>, session: unlock::Unlocked) -> Result<Report, AppError> {
     let mut report = Report::default();
 
     report.push(Check::with(

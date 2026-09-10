@@ -1072,6 +1072,7 @@ dependencies = [
  "heyl-domain",
  "heyl-ports",
  "heyl-vault",
+ "serde_json",
  "thiserror",
  "tokio",
  "zeroize",
@@ -1193,10 +1194,12 @@ dependencies = [
  "heyl-ports",
  "jiff",
  "keyring",
+ "qrcode",
  "rand_core 0.9.5",
  "rlimit",
  "rpassword",
  "thiserror",
+ "tokio",
  "zeroize",
 ]
 
@@ -1999,6 +2002,12 @@ checksum = "ab1ad36992cead65f02aa399a373a42730922f1525d988172634fdefdecb8a60"
 dependencies = [
  "pulldown-cmark",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quick-error"

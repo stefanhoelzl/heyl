@@ -13,6 +13,7 @@ mod wiring;
 use std::sync::LazyLock;
 
 use clap::{Parser, Subcommand};
+use heyl_app::session::Slot;
 use heyl_app::{AppError, ExitCode};
 
 /// What `--version` prints: the crate version, and the commit it was built
@@ -45,6 +46,29 @@ struct Cli {
     /// Backend endpoint. For testing against a recorded or local server.
     #[arg(long, global = true, env = "HEYL_ENDPOINT", hide = true)]
     endpoint: Option<String>,
+
+    /// Which session to act as.
+    ///
+    /// An agent gets its own identity by having `HEYL_SESSION` in the
+    /// environment it is configured with; your shell keeps `default`.
+    #[arg(long, global = true, env = "HEYL_SESSION")]
+    session: Option<String>,
+
+    /// How long to wait for a phone approval, in seconds.
+    ///
+    /// Without it, a command that needs an unlock waits indefinitely — the
+    /// thing it is waiting for is a person. Named `--wait` rather than
+    /// `--timeout` because on `session create` and `session set` a timeout is
+    /// the *policy* being written, not the patience of this invocation.
+    #[arg(long, global = true, value_name = "SECONDS")]
+    wait: Option<u64>,
+
+    /// How to draw a pairing code.
+    ///
+    /// Polarity is the silent failure: a code drawn for a dark terminal is a
+    /// negative on a light one, renders perfectly, and will not scan.
+    #[arg(long, global = true, value_enum, default_value_t = output::Qr::Utf8)]
+    qr: output::Qr,
 }
 
 #[derive(Debug, Subcommand)]
@@ -87,6 +111,16 @@ enum Command {
         command: api::Api,
     },
 
+    /// Sessions: this machine's devices on the account.
+    ///
+    /// A session is what your phone approves, and what it names when it asks.
+    /// Each has its own keys, its own unlock policy and its own entry in the
+    /// heylogin app, so an agent and you can hold opposite policies at once.
+    Session {
+        #[command(subcommand)]
+        command: SessionCommand,
+    },
+
     /// Check the key hierarchy against the backend, link by link.
     ///
     /// Recovers the seed from this session's unlock grant, derives every key,
@@ -99,6 +133,100 @@ enum Command {
         #[arg(long, value_enum, default_value_t = output::Format::Human)]
         format: output::Format,
     },
+}
+
+/// The `heyl session` verbs.
+#[derive(Debug, Subcommand)]
+enum SessionCommand {
+    /// Pair a new session with a QR scan, and register it as a device.
+    ///
+    /// One scan per session, deliberately: every session's seed comes straight
+    /// from the phone, so no session can conjure another. The new session is
+    /// born **locked** unless `--unlock` is given — pairing establishes an
+    /// identity, approving an unlock is a separate act.
+    Create {
+        /// The slot name. Defaults to `default`.
+        name: Option<String>,
+
+        /// What the phone shows for this device.
+        ///
+        /// Defaults to the slot name, or `heyl CLI` for the default slot. This
+        /// is the **only** string the approval screen displays, which is why
+        /// naming a slot for its caller is worth doing.
+        #[arg(long)]
+        display: Option<String>,
+
+        /// How long an approval lasts: `90s`, `30m`, `8h`.
+        ///
+        /// Server-enforced: the backend stops serving the unlock at the
+        /// deadline, so it binds any client that discards the seed. One minute
+        /// is its floor.
+        #[arg(long, value_name = "DURATION")]
+        timeout: Option<String>,
+
+        /// Drop the unlock when each command exits, so the next one re-asks.
+        #[arg(long)]
+        strict: bool,
+
+        /// Slide the unlock window on use, instead of expiring absolutely.
+        #[arg(long)]
+        auto_extend: bool,
+
+        /// Self-grant an unlock from the swipe you just did.
+        #[arg(long)]
+        unlock: bool,
+    },
+
+    /// Ask the phone to unlock a session, and wait for the approval.
+    ///
+    /// Blocks until you approve. `--wait` bounds it.
+    Unlock {
+        /// The slot name.
+        name: Option<String>,
+    },
+
+    /// Drop a session's unlock now, and cancel any request pending on it.
+    ///
+    /// Works on any session of the account, not only this machine's.
+    Lock {
+        /// The slot name.
+        name: Option<String>,
+    },
+
+    /// Change one setting.
+    ///
+    /// `display-name` is vault content, so it may ask for an unlock. `timeout`,
+    /// `strict` and `auto-extend` ride on the session record and never do.
+    Set {
+        /// The slot name.
+        name: Option<String>,
+        /// `display-name`, `timeout`, `strict` or `auto-extend`.
+        key: String,
+        /// `on`/`off` for flags, a duration for `timeout`.
+        value: String,
+    },
+
+    /// Read settings back. Never unlocks.
+    Get {
+        /// The slot name.
+        name: Option<String>,
+        /// One key, or every readable one.
+        key: Option<String>,
+    },
+
+    /// Retire a session: tombstone its device entry, delete it, forget its keys.
+    Remove {
+        /// The slot name.
+        name: Option<String>,
+
+        /// Delete what can be deleted even if the device entry cannot be
+        /// tombstoned, leaving the app listing a device that no longer exists.
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Every session this machine has, and what the backend says about them.
+    List,
 }
 
 fn main() -> std::process::ExitCode {
@@ -135,6 +263,7 @@ fn main() -> std::process::ExitCode {
 async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
     let adapters = wiring::Adapters::new(cli.endpoint.as_deref())?;
     let ports = adapters.ports();
+    let slot = Slot::new(cli.session.as_deref());
 
     match cli.command {
         #[cfg(feature = "api")]
@@ -171,8 +300,18 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
             Ok(std::process::ExitCode::SUCCESS)
         }
 
+        Command::Session { command } => {
+            session(&ports, command, &slot, cli.wait, cli.qr.into()).await
+        }
+
         Command::Doctor { format } => {
-            let report = heyl_app::doctor::run(&ports).await?;
+            // An ordinary command: a locked slot asks the phone and waits,
+            // rather than failing (decision 16).
+            let session = heyl_app::unlock::ensure(&ports, &slot, cli.wait).await?;
+            let report = heyl_app::doctor::run_with(&ports, session).await?;
+            // Strict slots re-lock as the command exits, so the next access
+            // asks the phone again.
+            heyl_app::session::finish(&ports, &slot).await;
             output::doctor(&report, format);
             Ok(if report.has_failures() {
                 std::process::ExitCode::from(ExitCode::Failure as u8)
@@ -181,4 +320,88 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
             })
         }
     }
+}
+
+/// Dispatch one `heyl session` verb.
+///
+/// The slot a verb acts on is its positional argument when given, and the
+/// globally selected one otherwise — so `heyl session lock` locks whatever
+/// `HEYL_SESSION` points at, and `heyl session lock ci` always locks `ci`.
+async fn session(
+    ports: &heyl_app::Ports<'_>,
+    command: SessionCommand,
+    selected: &Slot,
+    timeout: Option<u64>,
+    qr: heyl_ports::QrStyle,
+) -> Result<std::process::ExitCode, AppError> {
+    use heyl_app::session;
+
+    let pick = |name: Option<String>| -> Slot {
+        name.map_or_else(|| selected.clone(), |n| Slot::new(Some(&n)))
+    };
+
+    match command {
+        SessionCommand::Create {
+            name,
+            display,
+            timeout,
+            strict,
+            auto_extend,
+            unlock,
+        } => {
+            let slot = pick(name);
+            let policy = heyl_domain::SessionPolicy {
+                timeout_minutes: match timeout.as_deref() {
+                    Some(value) => session::parse_timeout(value)?,
+                    None if strict => heyl_domain::MIN_TIMEOUT_MINUTES,
+                    None => heyl_domain::DEFAULT_TIMEOUT_MINUTES,
+                },
+                strict,
+                auto_extend,
+            };
+            let created =
+                session::create(ports, &slot, display.as_deref(), policy, unlock, qr).await?;
+            output::session_created(&slot, &created, policy);
+        }
+
+        SessionCommand::Unlock { name } => {
+            let slot = pick(name);
+            let until = session::unlock_and_wait(ports, &slot, timeout).await?;
+            output::session_unlocked(&slot, until);
+        }
+
+        SessionCommand::Lock { name } => {
+            let slot = pick(name);
+            session::lock(ports, &slot).await?;
+            eprintln!("heyl: {} is locked", slot.name());
+        }
+
+        SessionCommand::Set { name, key, value } => {
+            let slot = pick(name);
+            let setting = session::Setting::parse(&key)?;
+            session::set(ports, &slot, setting, &value).await?;
+            eprintln!("heyl: {}.{setting} = {value}", slot.name());
+        }
+
+        SessionCommand::Get { name, key } => {
+            let slot = pick(name);
+            let setting = key.as_deref().map(session::Setting::parse).transpose()?;
+            let values = session::get(ports, &slot, setting).await?;
+            output::session_settings(&values);
+        }
+
+        SessionCommand::Remove { name, force } => {
+            let slot = pick(name);
+            let removed = session::remove(ports, &slot, force).await?;
+            output::session_removed(&slot, &removed);
+        }
+
+        SessionCommand::List => {
+            let slots = session::slots(ports).await;
+            let statuses = session::list(ports, &slots).await?;
+            output::session_list(&statuses);
+        }
+    }
+
+    Ok(std::process::ExitCode::SUCCESS)
 }

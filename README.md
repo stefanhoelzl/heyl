@@ -11,22 +11,37 @@ TOTP codes and custom fields from your vault in a shell or a script.
 
 ## Status
 
-**Early implementation — M2 of 11 is done and confirmed against a real account.**
+**Early implementation — the phone-swipe login and the session surface now work against a real
+account.**
 `heyl doctor` reports **37 passed, 0 failed**: all eight derivation links across
 four profiles, each byte-compared against the key heylogin publishes, and all
 five vaults decrypted. The reverse engineering is correct.
 
-It is not usable as a password manager yet — reading logins is M3.
+It is not usable as a password manager yet — reading logins is the next milestone.
 
 What the binary does today:
 
 ```sh
-heyl recovery --email you@example.com   # recover access with a recovery code
+heyl session create                     # pair with a QR swipe, and register as a device
+heyl session unlock                     # ask your phone, and wait for the approval
+heyl session list                       # what this machine has, and whether it is unlocked
 heyl doctor                             # walk the key hierarchy, and decrypt every vault
+heyl recovery --email you@example.com   # recover access with a recovery code
 ```
 
-`heyl recovery` is **not** a login — see below. A login arrives with M4's phone
-swipe; the mechanism already exists in `tools/heyl-fixtures`.
+A **session** is what your phone approves, and what it names when it asks. Each has its own
+keys, its own unlock policy and its own entry in the heylogin app, so an agent and you can hold
+opposite policies at once:
+
+```sh
+heyl session create claude-code --strict     # its own device, re-asks every access
+HEYL_SESSION=claude-code heyl get github.com # your phone: "approve claude-code?"
+```
+
+The name on that approval screen is the **only** thing your phone shows about who is asking —
+which is why sessions are named for their callers.
+
+`heyl recovery` is **not** a login — see below; `heyl session create` is.
 
 | | |
 |---|---|
@@ -50,8 +65,8 @@ fixtures built with our own contexts stay green under a wrong one. That is why
 `heyl doctor` exists: it derives each key and compares it against the public
 half heylogin publishes. Run live, it passes on every link.
 
-**There is no unattended login, and that is a protocol constraint rather than
-missing work.** heylogin offers two ways in without a phone present, and neither
+**There is still no unattended login, and that is a protocol constraint rather
+than missing work.** heylogin offers two ways in without a phone present, and neither
 is available to a third-party client:
 
 - **Recovery code** — using it makes the server *delete your push authenticator*
@@ -87,8 +102,9 @@ registering itself as a named, revocable device in your heylogin app.
 
 ## Security posture
 
-The 32-byte seed that unlocks everything is **never stored at rest**. The keychain holds only a
-session token and a session private key — neither decrypts anything on its own. Each invocation
+The 32-byte seed that unlocks everything is **never stored at rest**. The keychain holds a
+session token, a session private key and a session id — the first two decrypt nothing on their
+own, and the third only names us. Each invocation
 fetches the backend's session-unlock blob, recovers the seed in memory, uses it, and zeroizes.
 
 The backend stops serving that blob when the unlock expires, so heylogin's re-swipe control is

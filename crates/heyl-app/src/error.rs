@@ -50,6 +50,65 @@ pub enum AppError {
     #[error("this session is locked; run `heyl login` again")]
     UnlockRequired,
 
+    /// A slot already has credentials.
+    #[error("session slot {slot:?} already exists; `heyl session remove {slot}` first")]
+    SlotExists {
+        /// The slot in question.
+        slot: String,
+    },
+
+    /// A slot's stored values are not what they should be.
+    #[error("session slot {slot:?} is unusable: {what}")]
+    MalformedSlot {
+        /// The slot in question.
+        slot: String,
+        /// What was wrong with it.
+        what: &'static str,
+    },
+
+    /// This session has no `SessionMetadata` entry, so no phone will unlock it.
+    #[error(
+        "session {slot:?} is not registered as a device, so the phone cannot show it; \
+         run `heyl session create` again"
+    )]
+    NotRegistered {
+        /// The slot in question.
+        slot: String,
+    },
+
+    /// The backend no longer knows this session.
+    #[error("this session no longer exists; run `heyl session create` again")]
+    SessionGone,
+
+    /// A settings key that does not exist.
+    #[error("unknown setting {key:?}")]
+    UnknownSetting {
+        /// What the user typed.
+        key: String,
+    },
+
+    /// A settings value the key cannot take.
+    #[error("{key} cannot be {value:?}; expected {expected}")]
+    BadSettingValue {
+        /// Which key.
+        key: &'static str,
+        /// What the user typed.
+        value: String,
+        /// What would have been accepted.
+        expected: &'static str,
+    },
+
+    /// A timeout under the backend's floor.
+    #[error("the backend refuses an unlock timeout under {minimum} minute(s)")]
+    TimeoutTooShort {
+        /// The smallest value the backend accepts.
+        minimum: u32,
+    },
+
+    /// The account has no META vault at all.
+    #[error("this account has no META vault, so there is nowhere to register a device")]
+    NoMetaVault,
+
     /// The unlock grant was served but our session key did not open it.
     #[error("the unlock grant did not open with our session key")]
     UnlockUndecryptable,
@@ -131,8 +190,13 @@ impl AppError {
     #[must_use]
     pub const fn exit_code(&self) -> ExitCode {
         match self {
-            Self::UnlockRequired => ExitCode::UnlockRequired,
-            Self::Api(_) => ExitCode::Backend,
+            // A locked session and an unapproved request are the same exit:
+            // heyl cannot tell a phone-lock from an idle timeout, and says so
+            // rather than guessing (decision 16).
+            Self::UnlockRequired | Self::NotRegistered { .. } => ExitCode::UnlockRequired,
+            // A rejected token is the one case that is *not* "locked": the
+            // session is gone, and swiping again will not bring it back.
+            Self::SessionGone | Self::Api(_) => ExitCode::Backend,
             _ => ExitCode::Failure,
         }
     }

@@ -17,6 +17,8 @@ heyl-domain = { workspace = true }
 heyl-ports  = { workspace = true }
 
 async-trait = { workspace = true }
+tokio       = { workspace = true, features = ["time"] }
+qrcode      = { workspace = true }
 jiff        = { workspace = true }
 keyring     = { workspace = true }
 rand_core   = { workspace = true }

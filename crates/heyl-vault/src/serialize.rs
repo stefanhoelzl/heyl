@@ -62,6 +62,58 @@ impl Document {
     }
 }
 
+/// Re-serialize a document into a commit blob, in the framing it arrived in.
+///
+/// The inverse of [`decode`], and the write half of DESIGN.md §3's
+/// read-modify-write: a commit blob is the **full serialized state**, so a
+/// caller edits the [`Document`] it decoded and hands the whole thing back.
+/// Key order is preserved (`serde_json/preserve_order`), so keys we never
+/// touched — including ones no schema of ours knows about — come back out in
+/// the order heylogin wrote them.
+///
+/// # Errors
+/// [`VaultError::NotWritableVersion`] unless the content descriptor is
+/// [`DESCRIPTOR_VERSION_HEYMERGE`]; [`VaultError::Compression`] if snappy
+/// refuses the payload.
+pub fn encode(document: &Document) -> Result<Vec<u8>, VaultError> {
+    if !document.is_writable_version() {
+        return Err(VaultError::NotWritableVersion {
+            version: document.version,
+            expected: DESCRIPTOR_VERSION_HEYMERGE,
+        });
+    }
+
+    let mut object = Map::new();
+    object.insert(
+        "type".to_owned(),
+        Value::String(document.document_type.clone()),
+    );
+    object.insert("version".to_owned(), Value::from(document.version));
+    object.insert(
+        "content".to_owned(),
+        Value::Object(document.content.clone()),
+    );
+    let payload =
+        serde_json::to_vec(&Value::Object(object)).map_err(|_| VaultError::NotADocument {
+            what: "document does not serialize as JSON",
+        })?;
+
+    Ok(match document.format {
+        Format::Snappy => {
+            let mut out = Vec::with_capacity(payload.len());
+            out.push(0x01);
+            out.extend_from_slice(
+                &snap::raw::Encoder::new()
+                    .compress_vec(&payload)
+                    .map_err(|_| VaultError::Compression)?,
+            );
+            out
+        }
+        // The opening brace is the marker: the payload is already framed.
+        Format::Heymerge => payload,
+    })
+}
+
 /// Decode a decrypted commit blob.
 ///
 /// # Errors
@@ -119,4 +171,67 @@ pub fn decode(blob: &[u8]) -> Result<Document, VaultError> {
         version,
         content,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn document(format: Format, version: u64) -> Document {
+        let mut content = Map::new();
+        content.insert("sessions".to_owned(), Value::Object(Map::new()));
+        content.insert("accountSettings".to_owned(), Value::Object(Map::new()));
+        Document {
+            format,
+            document_type: "meta".to_owned(),
+            version,
+            content,
+        }
+    }
+
+    #[test]
+    fn round_trips_through_both_framings() {
+        for format in [Format::Snappy, Format::Heymerge] {
+            let original = document(format, DESCRIPTOR_VERSION_HEYMERGE);
+            let blob = encode(&original).expect("encodes");
+            assert_eq!(decode(&blob).expect("decodes"), original);
+        }
+    }
+
+    #[test]
+    fn snappy_output_carries_the_format_marker() {
+        let blob = encode(&document(Format::Snappy, DESCRIPTOR_VERSION_HEYMERGE)).expect("encodes");
+        assert_eq!(blob.first(), Some(&0x01));
+    }
+
+    #[test]
+    fn uncompressed_output_is_its_own_marker() {
+        let blob =
+            encode(&document(Format::Heymerge, DESCRIPTOR_VERSION_HEYMERGE)).expect("encodes");
+        assert_eq!(blob.first(), Some(&0x7B));
+    }
+
+    /// DESIGN.md §3: never write to a descriptor version we have not read.
+    #[test]
+    fn refuses_a_version_we_do_not_write() {
+        let err = encode(&document(Format::Snappy, 3)).expect_err("refuses");
+        assert!(matches!(
+            err,
+            VaultError::NotWritableVersion { version: 3, .. }
+        ));
+    }
+
+    /// Keys we never touched keep their order, including unknown ones.
+    #[test]
+    fn preserves_unknown_keys_and_their_order() {
+        let mut original = document(Format::Snappy, DESCRIPTOR_VERSION_HEYMERGE);
+        original
+            .content
+            .insert("somethingWeDoNotKnow".to_owned(), Value::from(7));
+        let decoded = decode(&encode(&original).expect("encodes")).expect("decodes");
+        assert_eq!(
+            decoded.content.keys().collect::<Vec<_>>(),
+            original.content.keys().collect::<Vec<_>>()
+        );
+    }
 }

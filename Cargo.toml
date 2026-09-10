@@ -84,6 +84,7 @@ prost-build       = "0.14"
 # which `prost` version this crate happens to pull.
 prost-reflect     = { version = "0.16", default-features = false, features = ["serde"] }
 tokio-stream      = "0.1"
+qrcode            = { version = "0.14", default-features = false }
 hyper             = { version = "1", features = ["client", "http1", "http2"] }
 hyper-util        = { version = "0.1", features = ["client-legacy", "http1", "http2", "tokio"] }
 # No provider feature on either: `ring` and `aws-lc-rs` are both C projects

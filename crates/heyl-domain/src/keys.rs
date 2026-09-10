@@ -342,6 +342,16 @@ impl VaultSecret {
     pub const fn key(&self) -> &SymKey {
         &self.0
     }
+
+    /// Take ownership of the key, for a caller that outlives the unwrapping.
+    ///
+    /// The write path needs it after the profile seeds are dropped: sealing a
+    /// commit happens once the document has been edited, which is well after
+    /// the chain that produced the key has gone out of scope.
+    #[must_use]
+    pub fn into_key(self) -> SymKey {
+        self.0
+    }
 }
 
 /// A vault's `protectedSecret`: decrypts the `ProtectedValue`s inside its
@@ -357,5 +367,15 @@ impl ProtectedSecret {
     #[must_use]
     pub const fn key(&self) -> &SymKey {
         &self.0
+    }
+
+    /// Take ownership of the key, for a caller that outlives the unwrapping.
+    ///
+    /// The write path needs it after the profile seeds are dropped: sealing a
+    /// commit happens once the document has been edited, which is well after
+    /// the chain that produced the key has gone out of scope.
+    #[must_use]
+    pub fn into_key(self) -> SymKey {
+        self.0
     }
 }

@@ -16,6 +16,7 @@ pub mod ids;
 pub mod keys;
 pub mod locks;
 pub mod login;
+pub mod session;
 pub mod sync;
 pub mod time;
 pub mod vault;
@@ -31,6 +32,10 @@ pub use keys::{
 };
 pub use locks::{ProfileAuthenticatorLock, VaultProfileLock};
 pub use login::{ChallengeEncoding, login_signing_key, sign_challenge};
+pub use session::{
+    DEFAULT_TIMEOUT_MINUTES, HeylClientSettings, ICON_CLI, MIN_TIMEOUT_MINUTES,
+    SERVER_UNLOCK_CAP_HOURS, SessionMetadata, SessionPolicy,
+};
 pub use sync::{
     Challenge, Commit, Profile, ProfilePublicKeys, Session, SessionUnlock, SyncSnapshot, Tokens,
     VaultCommits, VaultSummary,

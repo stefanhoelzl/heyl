@@ -45,14 +45,57 @@ pub struct Unlocked {
 /// [`AppError::UnlockRequired`] if no grant is being served,
 /// [`AppError::UnlockUndecryptable`] if our session key does not open it.
 pub async fn run(ports: &Ports<'_>) -> Result<Unlocked, AppError> {
+    run_in(ports, &SecretKey::default_slot, &SecretKey::default_slot).await
+}
+
+/// Recover the seed, asking the phone if the session is locked.
+///
+/// This is what an ordinary command uses: a read on a locked slot requests an
+/// unlock and waits for the approval rather than failing (decision 16). With
+/// `timeout_secs` it gives up and reports [`AppError::UnlockRequired`].
+///
+/// # Errors
+/// As [`run_for`], plus whatever the wait fails with.
+pub async fn ensure(
+    ports: &Ports<'_>,
+    slot: &crate::session::Slot,
+    timeout_secs: Option<u64>,
+) -> Result<Unlocked, AppError> {
+    match run_for(ports, slot).await {
+        Err(AppError::UnlockRequired) => {
+            crate::session::unlock_and_wait(ports, slot, timeout_secs).await?;
+            run_for(ports, slot).await
+        }
+        other => other,
+    }
+}
+
+/// The same, for a named session slot.
+///
+/// # Errors
+/// As [`run`]; additionally [`AppError::Port`] if the slot has no credentials.
+pub async fn run_for(ports: &Ports<'_>, slot: &crate::session::Slot) -> Result<Unlocked, AppError> {
+    let token_key = slot.key(StoredSecret::AccessToken);
+    let session_key = slot.key(StoredSecret::SessionPrivateKey);
+    run_in(ports, &move |_| token_key.clone(), &move |_| {
+        session_key.clone()
+    })
+    .await
+}
+
+async fn run_in(
+    ports: &Ports<'_>,
+    token_key: &dyn Fn(StoredSecret) -> SecretKey,
+    private_key: &dyn Fn(StoredSecret) -> SecretKey,
+) -> Result<Unlocked, AppError> {
     let token = ports
         .store
-        .get(&SecretKey::default_slot(StoredSecret::AccessToken))
+        .get(&token_key(StoredSecret::AccessToken))
         .await?;
     let session_key = decode_key(
         &ports
             .store
-            .get(&SecretKey::default_slot(StoredSecret::SessionPrivateKey))
+            .get(&private_key(StoredSecret::SessionPrivateKey))
             .await?,
     )?;
 

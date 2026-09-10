@@ -30,6 +30,22 @@ pub enum VaultError {
     #[error("snappy decompression failed")]
     Decompression,
 
+    /// Snappy refused to compress a document we built.
+    #[error("snappy compression failed")]
+    Compression,
+
+    /// The document is at a content-descriptor version v1 must not write to.
+    ///
+    /// A rail from DESIGN.md §3: writing a schema we have not read is how a
+    /// vault gets corrupted by a client that meant well.
+    #[error("refusing to write a version {version} document (heymerge is {expected})")]
+    NotWritableVersion {
+        /// What the document declared.
+        version: u64,
+        /// What we are willing to write.
+        expected: u64,
+    },
+
     /// The payload is not the `{type, version, content}` envelope.
     #[error("vault content is not a heymerge document: {what}")]
     NotADocument {

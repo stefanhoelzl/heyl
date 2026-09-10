@@ -15,11 +15,33 @@ pub enum StoredSecret {
     AccessToken,
     /// This session's X25519 private key, which opens the unlock grant.
     SessionPrivateKey,
+    /// The names of every slot this machine has, as a JSON array.
+    ///
+    /// **Not a secret, and not per-session**: it lives once, in the default
+    /// slot's service, because a keychain offers no portable way to enumerate
+    /// what is in it. Without it `heyl session list` could only ever describe
+    /// the slot it was told about.
+    SlotIndex,
+    /// This session's id.
+    ///
+    /// **Not a secret**: it identifies, it does not decrypt, so §3's claim
+    /// that the keychain holds nothing which opens a vault is unchanged. It is
+    /// stored because a later invocation cannot derive it — the access token's
+    /// JWT carries the *user* id and a token id, and `SyncUpdate` names every
+    /// session of the account without saying which one is us. Locking
+    /// ourselves, setting our timeout and writing our own `SessionMetadata`
+    /// entry all address the session by id.
+    SessionId,
 }
 
 impl StoredSecret {
     /// Every item, for `logout` and for `doctor`'s report.
-    pub const ALL: [Self; 2] = [Self::AccessToken, Self::SessionPrivateKey];
+    /// The three items a *session* owns.
+    ///
+    /// [`Self::SlotIndex`] is deliberately not here: it belongs to the machine
+    /// rather than to any one session, and removing a slot must not delete the
+    /// list of the others.
+    pub const ALL: [Self; 3] = [Self::AccessToken, Self::SessionPrivateKey, Self::SessionId];
 
     /// The name this item is stored under.
     #[must_use]
@@ -27,6 +49,8 @@ impl StoredSecret {
         match self {
             Self::AccessToken => "access_token",
             Self::SessionPrivateKey => "session_priv_key",
+            Self::SessionId => "session_id",
+            Self::SlotIndex => "slots",
         }
     }
 }

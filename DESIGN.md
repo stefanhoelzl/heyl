@@ -143,11 +143,25 @@ keychain holds nothing that decrypts anything. The cost is a swipe for `list`.
 
 ### Session registration
 
-At `login`, while the seed is briefly held, the CLI:
+At `session create`, while the seed is briefly held, the CLI:
 
-1. self-grants an unlock — `SessionService.CreateSessionUnlock(session_id,
-   asym_encrypt(own session encPubKey, seed), authenticator_id, max_expires_at)`;
-2. writes its `SessionMetadata` entry into the META vault.
+1. writes its `SessionMetadata` entry into the META vault;
+2. self-grants an unlock **only if `--unlock` was asked for** —
+   `CreateTokens(session_unlock: …)`. A session is otherwise born locked:
+   pairing establishes an identity, approving an unlock is a separate act.
+
+**Registration is not optional polish — it is the gate on everything.** Confirmed live: a
+session with no `SessionMetadata` entry is invisible in the heylogin app, and
+`RequestSessionUnlock` for it delivers a push that opens onto nothing when tapped. The phone
+verifies `encPubKeySignature` against its trusted authenticator keys before it will unlock
+anyone, so an unregistered session has nothing for it to verify and nothing to encrypt the seed
+to. heylogin knows this failure: `RequestSessionUnlockRequest.source` exists, per its own
+schema comment, to chase exactly these "ghost notifications".
+
+heyl cannot detect the state it produces, either: the entry is vault content, so reading it
+needs the unlock being asked for, and no `Sync` field reveals it. A device removed from the
+phone is therefore indistinguishable from an approval nobody has given yet, and `unlock` says
+so after waiting rather than pretending to know.
 
 `SessionMetadata` = `{encPubKey, encPubKeySignature, signingAuthId, creationTime, editTime}`
 plus optional `{description, iconType, isSelfUnlocking}`, wrapped with `{updateTime, isDeleted}`.
@@ -155,8 +169,8 @@ plus optional `{description, iconType, isSelfUnlocking}`, wrapped with `{updateT
 `salt-session-encryption-key-signature-`), so this write is only possible while unlocked — it
 can never happen during an ordinary read.
 
-`logout` writes a tombstone (`isDeleted: true`) and calls `DeleteSession`.
-**No other command ever commits.** There is no periodic refresh: `SyncUpdate.Session` already
+`session remove` writes a tombstone (`isDeleted: true`) and calls `DeleteSession`; `session set
+display-name` rewrites one field of the same entry. **No other command ever commits.** There is no periodic refresh: `SyncUpdate.Session` already
 carries `last_used_at` server-side, so refreshing `updateTime` would tell the app nothing new.
 
 ### Writing safely
@@ -697,6 +711,56 @@ report it rather than guess.
 
 ## 5. Command surface
 
+### Sessions — decided, and implemented
+
+```
+heyl session create [<name>] [--display <name>] [--timeout 8h] [--strict]
+                             [--auto-extend] [--unlock]
+heyl session unlock [<name>]           # blocks until approved; --wait bounds it
+heyl session lock   [<name>]           # drops the unlock and cancels a pending request
+heyl session set    [<name>] <key> <value>
+heyl session get    [<name>] [<key>]
+heyl session remove [<name>] [--force]
+heyl session list
+```
+
+A **slot** is a local name for one session. `HEYL_SESSION` or `--session` picks one; `default`
+is the one you get when you say nothing. Slots exist so a human and an agent can hold opposite
+policies on the same account at the same time — yours caching for the day, an agent's re-asking
+every access — and so the phone can tell them apart, because the approval screen shows the
+session's own name.
+
+**One QR scan per session.** Minting a session from another one's unlock is possible
+(`CreateChallenge` → sign with the seed → `CreateTokens`, no swipe) and deliberately unused:
+this way every session's seed comes straight from the phone, and no session can conjure another.
+
+Four settings, split by what they cost:
+
+| Key | Where it lives | Cost |
+|---|---|---|
+| `display-name` | META vault, E2EE | **an unlock** — and it is the only string the phone shows |
+| `timeout` | `unlock_time_limit_minutes` | none; works while locked |
+| `strict` | `client_settings` | none |
+| `auto-extend` | `client_settings` | none |
+
+`icon` is not a setting: it is always `cli`, a device type heylogin's own app ships an icon for.
+`get` never unlocks — it reports `display-name` as `<locked>` rather than reaching for the
+phone, so reading state is always cheap.
+
+`timeout` is server-enforced: the backend stops serving the unlock blob at the deadline, which
+binds any client that discards the seed. Its floor is **one minute** (0 is refused,
+`DomainError 20482`), and a grant lasts `min(max_expires_at, now + timeout)` from the moment of
+approval — absolute, not sliding, unless `auto-extend` opts a slot into
+`ExtendSessionUnlock`. `strict` is the client half: heyl drops its own unlock as the command
+exits, so the next access asks again.
+
+**What this buys, stated honestly.** Per-access approval constrains software that behaves —
+heyl holds the seed for one invocation and zeroizes. It is not containment: any session you
+unlock once has received the phone authenticator's seed, and a client that keeps it reads
+everything afterwards, invisibly, whatever the timeout says (`HEYLOGIN_SPEC.md` §6, confirmed
+live). Real revocation is deleting the *authenticator*, which rotates the seed — not locking,
+and not deleting the session.
+
 ### Selector semantics — ⚠ PROPOSED
 
 `get`, `totp` and friends take a selector resolved in this precedence order:
@@ -959,8 +1023,11 @@ reached has been more useful than mechanically shifting the numbers. What remain
 
 - **Read path** — full sync, profile/vault enumeration, serialize + heymerge parse, selector
   resolution. `heyl api decode` already prints real documents to design the parser against.
-- **Phone swipe** — long-poll channel, session self-unlock, pairing UX.
-- **Session registration** — `SessionMetadata` write, `logout` tombstone, `session list|revoke`.
+- ~~**Phone swipe**~~ — done: `CreateLongPollChannelChallenge`, QR rendering behind the
+  `Terminal` port, seed from the channel, `CreateTokens`. Polarity is exposed as `--qr`, because
+  a code drawn for the wrong background renders perfectly and simply will not scan.
+- ~~**Session registration**~~ — done: `SessionMetadata` write, tombstone on `session remove`,
+  `session list`, and the phone-swipe pairing it needs. What is left is the read path using it.
 - **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy.
 - **Distribution** — `cargo-dist` binaries, npm, PyPI.
 - **Hardening** — zeroization audit, fuzz the vault decoder, threat-model review, crates.io.

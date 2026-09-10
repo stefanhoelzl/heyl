@@ -26,9 +26,9 @@ pub mod random;
 pub mod secret_store;
 pub mod terminal;
 
-pub use api::HeylApi;
+pub use api::{HeylApi, LongPollChallenge, SessionUnlockGrant, SessionUpdate};
 pub use clock::Clock;
 pub use error::{ApiError, PortError};
 pub use random::RandomSource;
 pub use secret_store::{SecretKey, SecretStore, StoredSecret};
-pub use terminal::Terminal;
+pub use terminal::{QrStyle, Terminal};

@@ -7,6 +7,7 @@ use heyl_ports::Clock;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SystemClock;
 
+#[async_trait::async_trait]
 impl Clock for SystemClock {
     fn now(&self) -> Timestamp {
         Timestamp::from_jiff(jiff::Timestamp::now())
@@ -14,6 +15,10 @@ impl Clock for SystemClock {
 
     fn next_unlock_deadline(&self) -> Timestamp {
         next_unlock_deadline_from(jiff::Timestamp::now(), &jiff::tz::TimeZone::system())
+    }
+
+    async fn sleep_millis(&self, millis: u64) {
+        tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
     }
 }
 

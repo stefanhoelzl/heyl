@@ -4,10 +4,26 @@ use zeroize::Zeroizing;
 
 use crate::error::PortError;
 
-/// What the client needs from a terminal.
+/// How a pairing code should be drawn.
 ///
-/// M2 uses only the input half. QR rendering arrives with the phone-swipe flow
-/// at M4 and is deliberately absent here (DESIGN.md §5).
+/// Polarity is the failure mode that bites: a code drawn light-on-dark scans
+/// on a dark terminal and is a photographic negative on a light one, and it
+/// fails *silently* — the block renders, looks right, and no phone will read
+/// it (DESIGN.md §5). So it is exposed rather than assumed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum QrStyle {
+    /// Unicode half-blocks: about 37 columns for a pairing URL.
+    #[default]
+    Utf8,
+    /// Two spaces per module — twice as wide, but survives fonts with
+    /// non-square cells or ligatures.
+    Ascii,
+    /// Do not draw it; print the URL only.
+    None,
+}
+
+/// What the client needs from a terminal.
 pub trait Terminal: Send + Sync {
     /// Whether stdin is a TTY — i.e. whether prompting is possible at all.
     fn is_interactive(&self) -> bool;
@@ -35,4 +51,12 @@ pub trait Terminal: Send + Sync {
 
     /// Write a line to stderr.
     fn note(&self, message: &str);
+
+    /// Draw a pairing code on **stderr**, if this terminal can.
+    ///
+    /// Returns whether anything was drawn: the caller always prints the URL
+    /// underneath either way, because that one line is the difference between
+    /// a recoverable and an unrecoverable pairing attempt. Implementations
+    /// draw nothing when stdout is not a TTY.
+    fn render_qr(&self, payload: &str, style: QrStyle) -> bool;
 }

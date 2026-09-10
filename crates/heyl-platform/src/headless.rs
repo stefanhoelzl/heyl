@@ -13,7 +13,8 @@ use std::env;
 use heyl_ports::{PortError, SecretKey, SecretStore, StoredSecret};
 use zeroize::Zeroizing;
 
-/// Reads `HEYL_TOKEN` / `HEYL_SESSION_KEY` from the environment.
+/// Reads `HEYL_TOKEN` / `HEYL_SESSION_KEY` / `HEYL_SESSION_ID` from the
+/// environment.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HeadlessSecretStore;
 
@@ -24,6 +25,8 @@ impl HeadlessSecretStore {
         match secret {
             StoredSecret::AccessToken => "HEYL_TOKEN",
             StoredSecret::SessionPrivateKey => "HEYL_SESSION_KEY",
+            StoredSecret::SessionId => "HEYL_SESSION_ID",
+            StoredSecret::SlotIndex => "HEYL_SLOTS",
         }
     }
 

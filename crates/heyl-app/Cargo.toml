@@ -18,6 +18,7 @@ heyl-ports  = { workspace = true }
 heyl-vault  = { workspace = true }
 base64      = { workspace = true }
 thiserror   = { workspace = true }
+serde_json  = { workspace = true }
 zeroize     = { workspace = true }
 
 # Dev only. `cargo tree --edges normal` excludes these, so ci/check-dep-graph.sh

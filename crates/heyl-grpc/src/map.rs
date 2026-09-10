@@ -56,6 +56,20 @@ fn opt_signature(bytes: &[u8]) -> Option<Signature> {
         .flatten()
 }
 
+/// A domain timestamp on its way out to the wire.
+///
+/// heymerge compares `updateTime` as a string, but `CreateCommitRequest`
+/// carries a real `Timestamp`, so this is the one place the two representations
+/// meet.
+pub(crate) fn timestamp_to_proto(ts: Timestamp) -> prost_types::Timestamp {
+    let millis = ts.as_millisecond();
+    prost_types::Timestamp {
+        seconds: millis.div_euclid(1000),
+        #[expect(clippy::cast_possible_truncation, reason = "a remainder below 1000")]
+        nanos: (millis.rem_euclid(1000) as i32) * 1_000_000,
+    }
+}
+
 fn timestamp(ts: &prost_types::Timestamp) -> Option<Timestamp> {
     let millis = i64::from(ts.nanos) / 1_000_000;
     Timestamp::from_millisecond(ts.seconds.checked_mul(1000)?.checked_add(millis)?).ok()
@@ -254,6 +268,9 @@ fn session(s: &heyl_proto::sync_update::Session) -> Result<Session, ApiError> {
     Ok(Session {
         id: id!(SessionId, &s.id, "SyncUpdate.Session.id")?,
         unlocked_until: s.unlocked_until.as_ref().and_then(timestamp),
+        unlock_requested_at: s.unlock_requested_at.as_ref().and_then(timestamp),
+        unlock_time_limit_minutes: s.unlock_time_limit_minutes,
+        client_settings: s.client_settings.clone(),
     })
 }
 

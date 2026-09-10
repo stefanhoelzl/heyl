@@ -46,7 +46,7 @@ pub mod corpus;
 pub mod json;
 
 pub use client::{GrpcClient, GrpcConfig, Transportable};
-pub use domain::{DomainApi, LongPollChallenge};
+pub use domain::DomainApi;
 pub use request::{ClientContext, Request};
 pub use status::{DomainErrorDetail, decode_details, decode_details_base64, to_api_error};
 

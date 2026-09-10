@@ -7,6 +7,8 @@
 
 use heyl_app::doctor::{Outcome, Report};
 use heyl_app::recovery::RecoveryOutcome;
+use heyl_app::session::{Created, Removed, Setting, Slot, SlotStatus};
+use heyl_domain::SessionPolicy;
 
 /// How to render a report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -118,4 +120,121 @@ fn json(report: &Report) {
         Ok(rendered) => println!("{rendered}"),
         Err(e) => eprintln!("heyl: could not render the report as JSON: {e}"),
     }
+}
+
+/// How to draw a pairing code, as a flag value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Qr {
+    /// Unicode half-blocks: about 37 columns.
+    Utf8,
+    /// Two spaces per module — twice as wide, but survives odd fonts.
+    Ascii,
+    /// Print the URL only.
+    None,
+}
+
+impl From<Qr> for heyl_ports::QrStyle {
+    fn from(value: Qr) -> Self {
+        match value {
+            Qr::Utf8 => Self::Utf8,
+            Qr::Ascii => Self::Ascii,
+            Qr::None => Self::None,
+        }
+    }
+}
+
+/// Report a session that was just paired.
+pub fn session_created(slot: &Slot, created: &Created, policy: SessionPolicy) {
+    eprintln!(
+        "Paired {} as {:?} — the name your phone will show.",
+        slot.name(),
+        created.display
+    );
+    eprintln!("Session {}.", created.session_id);
+    eprintln!("Policy: {}.", describe(policy));
+    match created.unlocked_until {
+        Some(until) => eprintln!("Unlocked until {until}."),
+        // The normal case, and worth saying plainly: pairing establishes an
+        // identity, approving an unlock is a separate act.
+        None => eprintln!("Locked. The first command that needs a secret will ask your phone."),
+    }
+}
+
+/// Report an approved unlock.
+pub fn session_unlocked(slot: &Slot, until: heyl_domain::Timestamp) {
+    eprintln!("{} is unlocked until {until}.", slot.name());
+}
+
+/// Report what a removal managed to do.
+///
+/// Says what it could *not* do as well: a device left listed in the app is the
+/// kind of drift a user should hear about immediately, not discover later.
+pub fn session_removed(slot: &Slot, removed: &Removed) {
+    match (removed.tombstoned, removed.deleted) {
+        (true, true) => eprintln!("Removed {}.", slot.name()),
+        (false, true) => eprintln!(
+            "Deleted {} and forgot its keys, but could not tombstone its device entry — \
+             it will keep appearing in the heylogin app until you remove it there.",
+            slot.name()
+        ),
+        (true, false) => eprintln!(
+            "Tombstoned {} and forgot its keys, but the backend session is still there.",
+            slot.name()
+        ),
+        (false, false) => eprintln!(
+            "Forgot {}'s keys locally; nothing else could be cleaned up.",
+            slot.name()
+        ),
+    }
+}
+
+/// Print settings as `key=value`.
+///
+/// The vault-side name reads `<locked>` rather than being fetched: reading
+/// settings must never reach the phone.
+pub fn session_settings(values: &[(Setting, Option<String>)]) {
+    for (key, value) in values {
+        match value {
+            Some(value) => println!("{key}={value}"),
+            None => println!("{key}=<locked>"),
+        }
+    }
+}
+
+/// Print every local slot and what the backend says about it.
+pub fn session_list(statuses: &[SlotStatus]) {
+    if statuses.is_empty() {
+        eprintln!("No sessions on this machine. `heyl session create` pairs one.");
+        return;
+    }
+
+    println!("{:<16}  {:<24}  POLICY", "SLOT", "STATE");
+    for status in statuses {
+        let state = if !status.known {
+            "gone".to_owned()
+        } else if let Some(until) = status.unlocked_until {
+            format!("unlocked until {until}")
+        } else if status.unlock_requested {
+            "locked, request pending".to_owned()
+        } else {
+            "locked".to_owned()
+        };
+        let policy = status.policy.map_or_else(|| "—".to_owned(), describe);
+        println!("{:<16}  {state:<24}  {policy}", status.slot);
+    }
+}
+
+fn describe(policy: SessionPolicy) -> String {
+    let mut parts = vec![if policy.timeout_minutes.is_multiple_of(60) {
+        format!("timeout {}h", policy.timeout_minutes / 60)
+    } else {
+        format!("timeout {}m", policy.timeout_minutes)
+    }];
+    if policy.strict {
+        parts.push("strict".to_owned());
+    }
+    if policy.auto_extend {
+        parts.push("auto-extend".to_owned());
+    }
+    parts.join(", ")
 }

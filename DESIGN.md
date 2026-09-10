@@ -967,9 +967,12 @@ heylogin's behaviour drifts; only the next manual run does.
 — linux-musl and Windows-MSVC on `x86_64` and `aarch64`, and Apple on `aarch64` only — one native
 GitHub runner per triple, no cross-linker anywhere. Each job runs `cargo test --workspace --all-features` in **debug**
 (so `overflow-checks` stay on, which is the point for code that indexes and does arithmetic over key
-material) and then a separate `--release -p heyl` build whose binary is uploaded as a workflow
-artifact. `fmt` and `clippy` are host-independent and run once, beside the matrix rather than inside
-it. All five are required checks: a target-specific break — a dependency gated to `cfg(unix)`, say —
+material) and then a separate `--release -p heyl` build whose binary is **run** — `--help`, which
+reaches clap only after `harden_process()` has mlocked and, on Windows, raised the working-set
+quota — before being uploaded as a workflow artifact. Building proves a binary linked; nothing
+proved it starts, and the artifact is the first thing anyone downloading it runs.
+
+`fmt` and `clippy` are host-independent and run once, beside the matrix rather than inside it. All five are required checks: a target-specific break — a dependency gated to `cfg(unix)`, say —
 fails the pull request that introduced it rather than being discovered whenever someone next tries
 that platform. That is also the reason `.ship/gates.sh` no longer claims to mirror CI completely;
 one machine cannot.

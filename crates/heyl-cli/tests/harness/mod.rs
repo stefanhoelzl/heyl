@@ -1,8 +1,14 @@
 //! Running a scenario: the real binary, against a recorded backend.
 //!
 //! A scenario is a list of `heyl` invocations recorded once against a live
-//! account and replayed here — the shipped binary, its own argv parsing, its
-//! own output, over a real socket (DESIGN.md §6).
+//! account and replayed here — the real binary, its own argv parsing, its own
+//! output, over a real socket (DESIGN.md §6).
+//!
+//! Not the *shipped* binary, and the distinction is worth keeping honest: these
+//! steps drive `recovery` and `doctor`, which a release build does not have, and
+//! the two ports below need `--features dev` anyway. The suite covers the argv →
+//! stdout contract over real traffic; it will cover a release build's own
+//! commands when the read path has recordings.
 //!
 //! Two ports cannot travel over that socket and are injected instead:
 //!

@@ -43,6 +43,22 @@ for crate in "${!forbidden[@]}"; do
   [ "$violated" -eq 0 ] && echo "ok    $crate"
 done
 
+# The `dev` feature's whole justification is that the exclusion is a property of
+# the dependency graph rather than of the source -- which is worth exactly as
+# much as the check that enforces it. `prost-reflect` is the crate it genuinely
+# removes: `heyl-vault`, `base64` and `thiserror` reach a default build through
+# `heyl-app` regardless, which is why they are not optional.
+graph=$(cargo tree --package heyl --edges normal --prefix none --no-dedupe 2>/dev/null \
+        | awk '{print $1}' | sort -u)
+for banned in prost-reflect; do
+  if grep -qx "$banned" <<<"$graph"; then
+    echo "FAIL  a default heyl build must not depend on $banned  (DESIGN.md §5)" >&2
+    fail=1
+  else
+    echo "ok    heyl (no features) is free of $banned"
+  fi
+done
+
 # Every crate must opt in to the workspace lints, which is where
 # `unsafe_code = "forbid"` is declared. A crate that omits it is visible here
 # rather than invisible in a missing attribute.

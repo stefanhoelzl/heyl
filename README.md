@@ -12,10 +12,8 @@ TOTP codes and custom fields from your vault in a shell or a script.
 ## Status
 
 **Early implementation — the phone-swipe login and the session surface now work against a real
-account.**
-`heyl doctor` reports **37 passed, 0 failed**: all eight derivation links across
-four profiles, each byte-compared against the key heylogin publishes, and all
-five vaults decrypted. The reverse engineering is correct.
+account.** Every derivation link is confirmed live against the key heylogin publishes, and every
+vault decrypts; [`DESIGN.md`](DESIGN.md) §6 is where that evidence lives, and how it is produced.
 
 It is not usable as a password manager yet — reading logins is the next milestone.
 
@@ -25,9 +23,12 @@ What the binary does today:
 heyl session create                     # pair with a QR swipe, and register as a device
 heyl session unlock                     # ask your phone, and wait for the approval
 heyl session list                       # what this machine has, and whether it is unlocked
-heyl doctor                             # walk the key hierarchy, and decrypt every vault
-heyl recovery --email you@example.com   # recover access with a recovery code
 ```
+
+That is the whole of it. A handful of further commands — the raw gRPC surface, the hierarchy
+walk, and recovery-code recovery — exist only in a build made with `--features dev`, because
+they are there for reverse-engineering the protocol rather than for using a password manager.
+[`tools/README.md`](tools/README.md) describes them.
 
 A **session** is what your phone approves, and what it names when it asks. Each has its own
 keys, its own unlock policy and its own entry in the heylogin app, so an agent and you can hold
@@ -41,7 +42,8 @@ HEYL_SESSION=claude-code heyl get github.com # your phone: "approve claude-code?
 The name on that approval screen is the **only** thing your phone shows about who is asking —
 which is why sessions are named for their callers.
 
-`heyl recovery` is **not** a login — see below; `heyl session create` is.
+`heyl session create` is how you sign in. There is no `heyl login` yet, and no unattended one at
+all — see below.
 
 | | |
 |---|---|
@@ -56,15 +58,15 @@ which is why sessions are named for their callers.
 | [`descriptors/`](descriptors/) | The schema as a `FileDescriptorSet` — 19 services, 123 methods, extraction verified lossless |
 | [`crates/heyl-cli/tests/scenarios/`](crates/heyl-cli/tests/scenarios/) | The e2e suite: each file is a list of `heyl` invocations, the traffic they made, and what they printed |
 | [`crates/heyl-grpc/tests/protocol/`](crates/heyl-grpc/tests/protocol/) | Recorded gRPC-Web exchanges: the happy path and three error shapes |
-| [`tools/`](tools/) | Development tools. The only code here that talks to a real account |
+| [`tools/`](tools/) | Development tools, and the `--features dev` workbench. The only code here that talks to a real account |
 | [`vendor/tonic-web/`](vendor/) | Upstream, with a one-line fix for dropped gRPC-Web trailers |
 
 **What is established.** The primitives are checked against RFC 8032, RFC 4231
 and FIPS 180-4 vectors. The composition — which context salt, concatenated in
 which order, truncated where — is the part no offline test can settle, because
 fixtures built with our own contexts stay green under a wrong one. That is why
-`heyl doctor` exists: it derives each key and compares it against the public
-half heylogin publishes. Run live, it passes on every link.
+the workbench has a command that derives each key and compares it against the
+public half heylogin publishes. Run live, it passes on every link.
 
 **There is still no unattended login, and that is a protocol constraint rather
 than missing work.** heylogin offers two ways in without a phone present, and neither
@@ -72,10 +74,10 @@ is available to a third-party client:
 
 - **Recovery code** — using it makes the server *delete your push authenticator*
   and its locks (heylogin's Security Whitepaper §6.5.4; we confirmed it by
-  losing one). `heyl recovery` therefore shows you what it is about to
-  disconnect and asks first, and is named for what it is rather than hiding
-  behind the word "login". It costs a phone pairing every time, so it is a way
-  back in, not a way to run unattended.
+  losing one). It costs a phone pairing every time, so it is a way back in
+  rather than a way to run unattended — and it is a thing to do in heylogin's
+  own app, not through a third-party client, which is why heyl's own recovery
+  command is not in a release build.
 - **A stored session** — the unlock expires the next day at 02:00, and the server
   deletes the blob after 30 hours regardless.
 

@@ -1,23 +1,32 @@
 //! What the commands print.
 //!
 //! Secrets go to stdout raw and everything else goes to stderr (DESIGN.md §5).
-//! Neither command here emits a secret at all: `login` reports a session, and
-//! `doctor` reports comparisons. No key, plaintext or ciphertext is printed by
-//! either, in either format.
+//! Nothing here emits a secret at all: sessions report identities and policies,
+//! and `doctor` reports comparisons. No key, plaintext or ciphertext is printed
+//! by any of it, in either format.
+//!
+//! The `recovery` and `doctor` renderers are `dev`-only, alongside the commands
+//! that call them.
 
-use heyl_app::doctor::{Outcome, Report};
-use heyl_app::recovery::RecoveryOutcome;
 use heyl_app::session::{Created, Removed, Setting, Slot, SlotStatus};
 use heyl_domain::SessionPolicy;
+#[cfg(feature = "dev")]
+use {
+    heyl_app::doctor::{Outcome, Report},
+    heyl_app::recovery::RecoveryOutcome,
+};
 
 /// How to render a report.
+///
+/// Only the `dev` commands take one. `--format` is the one compatibility
+/// promise heyl makes, and it is not spent before the read path exists —
+/// neither shape here is a promise.
+#[cfg(feature = "dev")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Format {
     /// A table for a human.
     Human,
-    /// JSON. **Unstable** until §5's output contract lands at M6 with `list`
-    /// and `get` — `--format` is the only compatibility promise heyl makes,
-    /// and it is not spent on a diagnostic before the read path exists.
+    /// JSON. Unstable, in a build that is not the product.
     Json,
 }
 
@@ -25,6 +34,7 @@ pub enum Format {
 ///
 /// Says what was lost as well as what was gained: the user has a session, and
 /// no longer has whatever the recovery disconnected.
+#[cfg(feature = "dev")]
 pub fn recovery(outcome: &RecoveryOutcome, format: Format) {
     match format {
         Format::Human => recovery_human(outcome),
@@ -38,6 +48,7 @@ pub fn recovery(outcome: &RecoveryOutcome, format: Format) {
 /// window heylogin actually granted, the authenticators it listed as about to
 /// go. Nothing is derived from the local clock, which is what lets a scenario
 /// assert this document verbatim without normalising anything out of it.
+#[cfg(feature = "dev")]
 fn recovery_json(outcome: &RecoveryOutcome) {
     let disconnected: Vec<_> = outcome
         .disconnected
@@ -64,6 +75,7 @@ fn recovery_json(outcome: &RecoveryOutcome) {
     }
 }
 
+#[cfg(feature = "dev")]
 fn recovery_human(outcome: &RecoveryOutcome) {
     eprintln!("Recovered access to {}.", outcome.user_id);
     eprintln!("Session {} is registered.", outcome.session_id);
@@ -88,6 +100,7 @@ fn recovery_human(outcome: &RecoveryOutcome) {
 }
 
 /// Report a hierarchy walk.
+#[cfg(feature = "dev")]
 pub fn doctor(report: &Report, format: Format) {
     match format {
         Format::Human => human(report),
@@ -95,6 +108,7 @@ pub fn doctor(report: &Report, format: Format) {
     }
 }
 
+#[cfg(feature = "dev")]
 fn human(report: &Report) {
     for check in &report.checks {
         let line = match &check.detail {
@@ -131,6 +145,7 @@ fn human(report: &Report) {
     }
 }
 
+#[cfg(feature = "dev")]
 fn json(report: &Report) {
     let checks: Vec<_> = report
         .checks

@@ -7,15 +7,15 @@ M2 added an offline suite that runs the whole path — typed recovery code →
 Argon2id → seed → every link → a decrypted commit — and it does **not** replace
 this gate. That suite builds its fixtures with the same context salts the code
 derives with, so it is self-consistent by construction: change a context and
-both sides move together and the suite stays green. `heyl doctor`, run against a
-real account, is what actually detects a wrong context — by comparing each
-derived key against the public half heylogin publishes — and that is a live
-run, not something CI can do.
+both sides move together and the suite stays green. What actually detects a
+wrong context is `heyl doctor`, which compares each derived key against the
+public half heylogin publishes — and that is a live run against a real account,
+from a `--features dev` build, not something CI can do.
 
-So until a `heyl doctor` run against a real account is recorded in the repo, a
-moved derivation key still means one of two things — an intentional fix, or a
-silent regression — and `gates.sh` cannot tell them apart. It can only report
-that a `.snap` changed. That judgment is what this file asks for.
+So until such a run is recorded in the repo, a moved derivation key still means
+one of two things — an intentional fix, or a silent regression — and `gates.sh`
+cannot tell them apart. It can only report that a `.snap` changed. That
+judgment is what this file asks for.
 
 ## Check
 

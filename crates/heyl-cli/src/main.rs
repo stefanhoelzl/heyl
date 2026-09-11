@@ -5,7 +5,7 @@
 //! incapable of reaching an OS API or constructing a request; the wiring
 //! happens here, once (DESIGN.md §4).
 
-#[cfg(feature = "api")]
+#[cfg(feature = "dev")]
 mod api;
 mod output;
 mod wiring;
@@ -43,10 +43,6 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 
-    /// Backend endpoint. For testing against a recorded or local server.
-    #[arg(long, global = true, env = "HEYL_ENDPOINT", hide = true)]
-    endpoint: Option<String>,
-
     /// Which session to act as.
     ///
     /// An agent gets its own identity by having `HEYL_SESSION` in the
@@ -75,6 +71,13 @@ struct Cli {
 enum Command {
     /// Recover access with a recovery code, and store a session.
     ///
+    /// Present only in a build made with `--features dev`. Not because it is
+    /// dangerous — it is, and it asks — but because it is not the product: it
+    /// exists because reaching a session before the phone swipe worked is how
+    /// the hierarchy was first confirmed. Someone who has lost their phone
+    /// should recover in heylogin's own app, which does it without a
+    /// third-party client in the path (DESIGN.md §2).
+    ///
     /// This is **not** a login. heylogin treats a recovery code as an account
     /// recovery: the server disconnects your phone's authenticator and its
     /// locks, and pairing a phone again afterwards regenerates every profile.
@@ -85,6 +88,7 @@ enum Command {
     /// echo, or read from stdin when piped. There is deliberately **no
     /// `--code` flag**: a recovery code unlocks every vault, so putting it in
     /// argv would leak it into `ps` output and shell history.
+    #[cfg(feature = "dev")]
     Recovery {
         /// The account's email address.
         #[arg(long, env = "HEYL_EMAIL")]
@@ -98,8 +102,8 @@ enum Command {
         #[arg(long)]
         confirm: bool,
 
-        /// Output format. `json` is **unstable** until the output contract
-        /// lands with `list` and `get`.
+        /// Output format. A `dev` command's output is not a compatibility
+        /// promise in either shape.
         #[arg(long, value_enum, default_value_t = output::Format::Human)]
         format: output::Format,
     },
@@ -111,11 +115,11 @@ enum Command {
     /// recovery` asks about — except nothing asks. `api derive` prints seeds
     /// and vault keys to the terminal. **Point it at a throwaway account.**
     ///
-    /// Present only in a build made with `--features api`, which is what keeps
+    /// Present only in a build made with `--features dev`, which is what keeps
     /// `prost-reflect` and the embedded descriptor out of the release
     /// dependency graph (DESIGN.md §5). It is listed here rather than hidden:
     /// a command the binary actually has should say so.
-    #[cfg(feature = "api")]
+    #[cfg(feature = "dev")]
     Api {
         #[command(subcommand)]
         command: api::Api,
@@ -133,13 +137,20 @@ enum Command {
 
     /// Check the key hierarchy against the backend, link by link.
     ///
+    /// Present only in a build made with `--features dev`. It answers a
+    /// question whose only possible action is a code change — "does the
+    /// reverse-engineered derivation agree with heylogin?" — which is what
+    /// makes it a workbench command rather than a diagnostic. A release build
+    /// answers the question a user can act on with `session list`.
+    ///
     /// Recovers the seed from this session's unlock grant, derives every key,
     /// compares each against the public half heylogin publishes, then opens
     /// every vault. This is what confirms that the reverse-engineered
     /// derivation actually agrees with heylogin.
+    #[cfg(feature = "dev")]
     Doctor {
-        /// Output format. `json` is **unstable** until the output contract
-        /// lands with `list` and `get`.
+        /// Output format. A `dev` command's output is not a compatibility
+        /// promise in either shape.
         #[arg(long, value_enum, default_value_t = output::Format::Human)]
         format: output::Format,
     },
@@ -271,13 +282,13 @@ fn main() -> std::process::ExitCode {
 }
 
 async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
-    let adapters = wiring::Adapters::new(cli.endpoint.as_deref())?;
+    let adapters = wiring::Adapters::new()?;
     let ports = adapters.ports();
     let slot = Slot::new(cli.session.as_deref());
 
     match cli.command {
-        #[cfg(feature = "api")]
-        Command::Api { command } => match api::run(command, cli.endpoint.as_deref()).await {
+        #[cfg(feature = "dev")]
+        Command::Api { command } => match api::run(command).await {
             Ok(()) => Ok(std::process::ExitCode::SUCCESS),
             // Reported here rather than mapped into `AppError`: this is not a
             // use case, and the core should not learn a vocabulary for a tool
@@ -288,6 +299,7 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
             }
         },
 
+        #[cfg(feature = "dev")]
         Command::Recovery {
             email,
             confirm,
@@ -318,6 +330,7 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
             session(&ports, command, &slot, cli.wait, cli.qr.into()).await
         }
 
+        #[cfg(feature = "dev")]
         Command::Doctor { format } => {
             // An ordinary command: a locked slot asks the phone and waits,
             // rather than failing (decision 16).

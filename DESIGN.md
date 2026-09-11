@@ -30,8 +30,11 @@ The reference points are `op read` and `pass show`, not a terminal UI for managi
 - **One write**, and only one: the CLI's own `SessionMetadata` entry in the META vault, so the
   session appears as a named, revocable device in the heylogin app (§7).
 - Login via **phone swipe (PUSH)**.
-- **One recovery command**, `heyl recovery` — not a login. See below.
-- Commands: `login`, `logout`, `list`, `get`, `totp`, `run`, `completion`, `session list|revoke`.
+- Commands a release build has: `session create|unlock|lock|set|get|remove|list`, and — as the
+  read path lands — `list`, `get`, `totp`, `run`, `completion`.
+- Commands behind `--features dev`, which a release build does not have: `api`, `doctor`,
+  `recovery`. They exist for reverse-engineering the protocol, not for using a password
+  manager (§5). `heyl recovery` is also not a login — see below.
 
 **Scheduled, after the core is done (see §7):** WebAuthn / FIDO2 login (M9), device-to-device
 unlock (M10), Windows support (M11).
@@ -62,6 +65,16 @@ So the command exists, and it is named for what it does. `heyl recovery`:
 - **refuses when there is no terminal to ask at and no `--confirm`** — a destructive operation does
   not proceed silently because nobody was there to object;
 - **says what was lost afterwards**, and that pairing a phone again regenerates every profile.
+
+**So the command is not part of the product.** It lives behind `--features dev` with the rest of
+the workbench (§5). Earlier drafts kept it shipped on the argument that a user with no phone has
+nothing else — but they do: heylogin's own app performs the same recovery, without a third-party
+client in the path, and it is the client heylogin's server will accept a `BACKUP_CODE` from
+anyway. What `heyl recovery` was genuinely for is reaching a session *before the phone swipe
+worked*, which is how the hierarchy was first confirmed. That is a development affordance, and
+naming it one is more honest than shipping a destructive command to cover a case the vendor's own
+app already covers. The two findings above do not change: it is destructive, and it is refused to
+a client that identifies as itself.
 
 The consequence for daily use is unchanged: **`heyl` has no unattended login.** A session's unlock
 expires the next day at 02:00 (and the server deletes the blob after 30 hours), so a headless box
@@ -792,11 +805,41 @@ tool that runs unattended.
 | 4 | unlock required / expired |
 | 5 | network or backend error |
 
-### `heyl api` — unsafe by construction, and not shipped
+### The dev surface — `--features dev`
 
-The commands above are the product. `heyl api` is not: it is heylogin's gRPC surface with the
-safety taken off, and it exists because reverse-engineering a protocol needs a way to ask the
-backend a question that no use case has been designed for yet.
+The commands above are the product. Three more are not, and they are absent from a release
+build: **`api`**, **`doctor`** and **`recovery`**, plus the `HEYL_ENDPOINT` override.
+
+What they have in common is not danger — `doctor` only reads, and compares. It is **audience**.
+Each exists because someone is reverse-engineering a protocol: `api` because that work needs a
+way to ask the backend a question no use case has been designed for yet; `doctor` because the
+composition of context salts is the one thing no offline test can settle (§6), so its answer is
+a code change rather than anything a user can act on; `recovery` because reaching a session
+before the phone swipe worked is how the hierarchy was first confirmed, and the same recovery is
+a thing to do in heylogin's own app (§2). A release build is the product; this build is the lab.
+
+They stay **top-level commands** rather than moving under a `heyl dev …` namespace. The gate is
+the build, and a build that has a command should list it where it is; a namespace would spell
+the gate a second time in argv for no further guarantee.
+
+`--features dev` is also what binds the scenario suite's two injected ports (§6), which is the
+one consequence worth stating plainly: **a workbench build's credential store is a file on
+disk.** The §3 rule that no on-disk credential store may exist is therefore a claim about a
+*release* binary, which is the binary anyone gets.
+
+**What the feature actually removes from the graph is `prost-reflect`.** `heyl-vault`, `base64`
+and `thiserror` reach a default build through `heyl-app` regardless, so they are ordinary
+dependencies of `heyl-cli` rather than opt-ins that would advertise an exclusion that never
+happens. `ci/check-dep-graph.sh` fails the build if `prost-reflect` appears in a default
+`cargo tree -p heyl -e normal` — a claim nobody runs is not a guarantee.
+
+**`HEYL_ENDPOINT` has no flag, and a release build does not read it.** Nothing ever passed
+`--endpoint` on argv: the scenario harness and the recorder both set the variable. Reading it
+only in a `dev` build buys a property worth more than the override — a shipped binary cannot be
+pointed somewhere else by its environment, and an environment variable that moves where
+credentials are sent is an attack surface a password manager should not have.
+
+#### `heyl api` — unsafe by construction
 
 **Every one of the 123 RPCs is reachable by name, with no guards.** `CreateTokens` with a
 `BACKUP_CODE` signature performs the destructive recovery `heyl recovery` asks about — except
@@ -804,11 +847,11 @@ nothing asks. `heyl api derive` prints seeds and vault keys to the terminal. A c
 over 123 methods, most of which nobody has studied, would give confidence proportional to the
 curation rather than to the danger, so there is none. **Point it at a throwaway account.**
 
-That is why it is gated by a **default-off cargo feature**, so `prost-reflect` and the embedded
-descriptor are absent from the release dependency graph entirely — a property `cargo tree` can
-check, which `cfg(debug_assertions)` would not give.
+The gate is a **cargo feature** rather than `cfg(debug_assertions)` because that makes the
+exclusion a property of the dependency graph — something `cargo tree` can check, and a `cfg`
+cannot.
 
-It is **not** hidden from `--help`. It was, once, on the reasoning that a dangerous command
+Within a `dev` build it is **not** hidden from `--help`. It was, once, on the reasoning that a dangerous command
 should be hard to stumble into. That was the wrong trade: the feature is the gate, and a build
 that has the command should admit it. Hiding a compiled-in command makes `--help` an unreliable
 account of what the binary can do — which costs the reader trust in every *other* line of it,
@@ -897,21 +940,22 @@ it depends on terminal capabilities.
 
 ### Headless operation
 
-`heyl recovery` reads the code from `HEYL_RECOVERY_CODE`, a hidden prompt, or stdin — **never
-argv**, and there is deliberately no `--code` flag to spell it into `ps` output or shell history.
-It is a **top-level command, not under `login`**: it is not a sign-in, and a destructive operation
-must not be reachable by someone who thinks they are logging in. `--confirm` skips the question;
-`--email` is not secret and is an ordinary flag, falling back to `HEYL_EMAIL` and then a prompt.
+`heyl session create` is the sign-in, and there is no `heyl login`: a command that cannot work is
+worse than an absent one, and by the time one could work the verb that meant it was `session
+create` (§5). On a headless box with no Secret Service, the `SecretStore` port is bound to
+`HeadlessSecretStore`, which reads `HEYL_TOKEN` / `HEYL_SESSION_KEY` from the environment — an
+adapter swap, not a special case threaded through the code.
 
-M4 introduces `heyl login push`, which is the first time a command called "login" means what the
-word means. There is no `heyl login` before then — a command that cannot work is worse than an
-absent one. On a headless box with no
-Secret Service, the `SecretStore` port is bound to `HeadlessSecretStore`, which reads
-`HEYL_TOKEN` / `HEYL_SESSION_KEY` from the environment — an adapter swap, not a special
-case threaded through the code.
+In the dev surface, `heyl recovery` reads the code from `HEYL_RECOVERY_CODE`, a hidden prompt, or
+stdin — **never argv**, and there is deliberately no `--code` flag to spell it into `ps` output or
+shell history. It is a **top-level command, not under `login`**: it is not a sign-in, and a
+destructive operation must not be reachable by someone who thinks they are logging in. `--confirm`
+skips the question; `--email` is not secret and is an ordinary flag, falling back to `HEYL_EMAIL`
+and then a prompt.
 
-The CLI warns loudly that a recovery code in CI is a standing master credential (§4: reusable,
-not one-time, and it unlocks every vault).
+It warns loudly that a recovery code in CI is a standing master credential (§4: reusable, not
+one-time, and it unlocks every vault) — and it is not in a release binary at all, so putting one
+in CI now means shipping the workbench there on purpose.
 
 ---
 
@@ -927,14 +971,14 @@ not one-time, and it unlocks every vault).
 | Framing | A gRPC-Web body built at chosen sizes and frame counts, through the transport seam | authoritative, and it can ask sizes a recording never happened to contain | No |
 | Generated surface | Two shape tests — unary and server-streaming — plus the trait's completeness against the descriptor set | authoritative for the generator | No |
 | Record ↔ replay | Round trip: record against a stub, replay the records, compare | authoritative | No |
-| **End to end** | The shipped binary, argv to stdout, over a real socket to a corpus-backed gRPC-Web server | authoritative for everything but the context salts | No |
+| **End to end** | The real binary — a `--features dev` build — argv to stdout, over a real socket to a corpus-backed gRPC-Web server | authoritative for everything but the context salts | No |
 | Port adapters | The terminal and clock are real; a scenario injects only a writable store and the draw sequence | — | No |
 | Live confirmation | `tools/heyl-fixtures` against a real account — a **tool**, never a test | authoritative | Yes |
 
 **A scenario is a list of `heyl` invocations, and the file it lives in is the whole test.** It
 holds what you wrote — the `argv`, `stdin` and expected exit of each step — and what `record`
 filled in: the calls that step made against a real account, and the JSON it printed. `cargo test`
-replays it against the shipped binary; nothing else is needed to read one.
+replays it against the binary; nothing else is needed to read one.
 
 The **corpus is an input, not an expectation**: the assertion is the exit code and the JSON on
 stdout, never the traffic. Records are also **pre-mapping** — they hold what the backend sent, not
@@ -981,8 +1025,8 @@ one machine cannot.
 socket as gRPC-Web, by a server whose 122 decode-call-encode arms come from the same descriptor walk
 that generates the client. **The same server records.** `serve` takes any `HeyloginApi`, so a corpus
 behind it makes a replay and a `RecordingApi` over a real client makes a recording proxy — which is
-why the binary has no recording code of its own and `--endpoint`, a flag it already ships with, is
-the whole of what a recording needs. That matters because the two defects M2 actually shipped — a lock-mapping
+why the binary has no recording code of its own and `HEYL_ENDPOINT`, which a `--features dev`
+build reads, is the whole of what a recording needs. That matters because the two defects M2 actually shipped — a lock-mapping
 rule and reading `DomainError` from the wrong `tonic` API — both lived in `heyl-grpc`, and one
 passed green precisely because the test hand-built the `Status` the way the broken code read it. A
 port-level fake cannot catch either, by construction.
@@ -991,9 +1035,10 @@ port-level fake cannot catch either, by construction.
 is sealed to the session key the recording derived, so a replay must draw the same bytes — the
 scenario states them. And the keychain, because the steps of a scenario are separate processes:
 `KeyringStore` would write into the user's own login keyring and is absent on CI, and
-`HeadlessSecretStore` cannot write at all. Both live behind a default-off `test-ports` feature, so
-a writable on-disk credential store cannot exist in a binary anyone gets (§3); it adds no
-dependency, so the graph `cargo tree` reports is identical either way. The terminal stays
+`HeadlessSecretStore` cannot write at all. Both live behind the default-off `dev` feature, so a
+writable on-disk credential store cannot exist in a *release* binary (§3); they add no dependency,
+so the graph `cargo tree` reports is identical either way — what `dev` genuinely removes from that
+graph is `prost-reflect`, and `ci/check-dep-graph.sh` fails the build if it reappears. The terminal stays
 real — a step's stdin is piped, which is why the confirmation prompt is the one path a scenario
 cannot reach — and so does the clock: nothing compares an expiry against `now()`, and the only port
 sleep is the one-second pacing of the unlock poll, which costs a scenario whatever its recording
@@ -1063,7 +1108,7 @@ reached has been more useful than mechanically shifting the numbers. What remain
   `Terminal` port, seed from the channel, `CreateTokens`. Polarity is exposed as `--qr`, because
   a code drawn for the wrong background renders perfectly and simply will not scan.
 - ~~**Scenario tests**~~ — done: the e2e suite is one JSON file per scenario — the invocations, the
-  traffic they made, the output they must print — replayed against the shipped binary over a
+  traffic they made, the output they must print — replayed against the real binary over a
   loopback gRPC-Web socket served from the recording. `build.rs` emits one test per file, so
   dropping a recording in is the whole act of adding a scenario. `derive` and the per-call fixture
   tree are gone; `record` and `rekey` are one command, so a raw recording need never be written to

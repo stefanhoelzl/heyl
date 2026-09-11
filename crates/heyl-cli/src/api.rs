@@ -9,9 +9,9 @@
 //! key material to your terminal. Nothing is confirmed, nothing is checked.
 //!
 //! That is deliberate, and it is why the command exists only in a build made
-//! with `--features api` and is hidden even then. **Point it at a throwaway
-//! account.** The safe path exists and is named for what it does: `heyl
-//! recovery` (DESIGN.md §5).
+//! with `--features dev`. **Point it at a throwaway account.** It is not hidden
+//! within such a build: a command the binary actually has should say so
+//! (DESIGN.md §5).
 //!
 //! # What is here
 //!
@@ -204,7 +204,7 @@ pub enum Api {
 ///
 /// # Errors
 /// [`AppError`] if the call or the arithmetic fails.
-pub async fn run(api: Api, endpoint: Option<&str>) -> Result<(), ApiCommandError> {
+pub async fn run(api: Api) -> Result<(), ApiCommandError> {
     match api {
         Api::Methods { filter } => {
             methods(filter.as_deref());
@@ -215,7 +215,7 @@ pub async fn run(api: Api, endpoint: Option<&str>) -> Result<(), ApiCommandError
             body,
             token,
             client_type,
-        } => call(&method, body.as_deref(), token, &client_type, endpoint).await,
+        } => call(&method, body.as_deref(), token, &client_type).await,
         Api::SignChallenge {
             challenge,
             salt,
@@ -261,11 +261,10 @@ async fn call(
     body: Option<&str>,
     token: Option<String>,
     client_type: &str,
-    endpoint: Option<&str>,
 ) -> Result<(), ApiCommandError> {
     let path = resolve(method)?;
     let config = GrpcConfig {
-        endpoint: endpoint.map_or_else(|| heyl_grpc::DEFAULT_ENDPOINT.to_owned(), str::to_owned),
+        endpoint: super::wiring::endpoint(),
         ..GrpcConfig::default()
     };
     let context = ClientContext {

@@ -1,7 +1,7 @@
 //! Development tooling. Not published, not shipped, not on any user's machine.
 //!
 //! One job, which needs a real account and therefore cannot live in the test
-//! suite: `record` fills in a scenario, running the shipped binary against a
+//! suite: `record` fills in a scenario, running the real binary against a
 //! live account and then re-keying what it captured so the throwaway account's
 //! seed and recovery code never enter the repository.
 //!
@@ -43,7 +43,7 @@ struct Cli {
 enum Command {
     /// Fill in a scenario against a real account.
     ///
-    /// Reads the invocations from the scenario file, runs each as the shipped
+    /// Reads the invocations from the scenario file, runs each as the real
     /// binary, re-keys what was captured, and leaves a file that is safe to
     /// commit. A destructive recovery cannot be repeated without pairing a
     /// phone again, so the whole sequence is captured in one run.

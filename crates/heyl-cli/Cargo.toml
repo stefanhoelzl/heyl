@@ -13,23 +13,21 @@ build                  = "build.rs"
 workspace = true
 
 [features]
-# `heyl api`: the raw surface over every RPC in the schema, plus the pure
-# crypto helpers that make a login hand-drivable.
+# The workbench: `heyl api`, `heyl doctor`, `heyl recovery`, the `HEYL_ENDPOINT`
+# override, and the scenario suite's two injected ports.
 #
-# Default-off, and hidden even when built, because it is **unsafe by
-# construction**: no guards, destructive RPCs reachable by name, key material
-# printable. Use it against a throwaway account. Gating it as a feature rather
-# than on `debug_assertions` is what keeps `prost-reflect` and the embedded
-# descriptor out of the release dependency graph, which is a property
-# `cargo tree` can check and `cfg` cannot.
-api = ["heyl-grpc/api", "dep:base64", "dep:heyl-vault", "dep:thiserror"]
-
-# The scenario suite's two injected ports: a writable JSON store and the
-# scenario's stated draw sequence, bound when `HEYL_STORE` is in the
-# environment. Default-off for the same reason as `api` -- an on-disk
-# credential store must not exist in a binary a user can get (DESIGN.md §3),
-# and `cargo tree` can check that where `cfg` cannot.
-test-ports = ["heyl-platform/test-ports"]
+# What they have in common is not danger -- `doctor` only reads -- but audience.
+# Each exists because someone is reverse-engineering a protocol, not because a
+# password-manager user needs it. A release build is the product; this build is
+# the lab. Point it at a throwaway account.
+#
+# Default-off, and a cargo feature rather than `cfg(debug_assertions)`, because
+# that makes the exclusion a property of the dependency graph rather than of the
+# source: `prost-reflect` and the embedded descriptor are absent from a default
+# build, and a writable on-disk credential store cannot exist in a binary a user
+# can get (DESIGN.md §3). `ci/check-dep-graph.sh` checks it -- a claim nobody
+# runs is not a guarantee.
+dev = ["heyl-grpc/api", "heyl-platform/test-ports"]
 
 [[bin]]
 name = "heyl"
@@ -59,10 +57,14 @@ heyl-domain   = { workspace = true }
 heyl-grpc     = { workspace = true }
 heyl-platform = { workspace = true }
 heyl-ports    = { workspace = true }
-heyl-vault    = { workspace = true, optional = true }
+heyl-vault    = { workspace = true }
 
-base64      = { workspace = true, optional = true }
-thiserror   = { workspace = true, optional = true }
+# Not `optional = true`, though only the `dev` surface names them: all three are
+# in a default build's graph through `heyl-app` regardless, so an opt-in would
+# advertise an exclusion that never happens. What `dev` genuinely removes is
+# `prost-reflect`, via `heyl-grpc/api`.
+base64      = { workspace = true }
+thiserror   = { workspace = true }
 clap        = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }

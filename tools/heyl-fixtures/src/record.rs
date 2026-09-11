@@ -3,7 +3,7 @@
 //! A scenario file starts as a hand-written list of invocations and nothing
 //! else. This fills in the rest, in four phases:
 //!
-//! 1. **record** — run each step as the shipped `heyl` binary, pointed by
+//! 1. **record** — run each step as the real `heyl` binary, pointed by
 //!    `HEYL_ENDPOINT` at a *recording proxy* on loopback: it decodes each call,
 //!    forwards it to the real backend, keeps what crossed, and encodes the reply
 //!    back. The calls are heylogin's own, in the order the product actually asks
@@ -41,8 +41,8 @@ pub async fn run(endpoint: &str, path: &Path, rekey_after: bool) -> Result<(), S
     }
 
     let binary = std::env::var("HEYL_BINARY").map_err(|_| {
-        "set HEYL_BINARY to the `heyl` built with --features test-ports \
-         (cargo build --features test-ports; target/debug/heyl)"
+        "set HEYL_BINARY to the `heyl` built with --features dev \
+         (cargo build --features dev; target/debug/heyl)"
             .to_owned()
     })?;
 
@@ -125,9 +125,7 @@ pub async fn run(endpoint: &str, path: &Path, rekey_after: bool) -> Result<(), S
         .file_stem()
         .map(|s| s.to_string_lossy().replace(['-', '.', ' '], "_"))
         .ok_or_else(|| format!("{} has no file name", path.display()))?;
-    eprintln!(
-        "         run: HEYL_BLESS=1 cargo test -p heyl --features test-ports scenario::{name}"
-    );
+    eprintln!("         run: HEYL_BLESS=1 cargo test -p heyl --features dev scenario::{name}");
     Ok(())
 }
 

@@ -20,10 +20,10 @@ api = ["dep:prost-reflect", "dep:serde", "dep:serde_json"]
 
 # heylogin on loopback: the corpus served over a real socket, or a proxy that
 # forwards to the real backend and keeps what crossed. Both are the same
-# server over a different `HeyloginApi`, which is what lets the shipped binary
-# record a scenario with no recording code of its own -- it only needs
-# `--endpoint`. Separate from `api` so `heyl --features api` does not drag an
-# HTTP server into a build someone might actually run.
+# server over a different `HeyloginApi`, which is what lets the binary record a
+# scenario with no recording code of its own -- it only needs `HEYL_ENDPOINT`,
+# which a `--features dev` build reads. Separate from `api` so `heyl`'s own
+# `dev` feature does not drag an HTTP server into a build someone might run.
 server = ["api", "dep:hyper", "dep:http-body-util"]
 
 [build-dependencies]

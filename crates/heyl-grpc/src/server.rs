@@ -18,8 +18,9 @@
 //!   a **recording proxy** — it forwards to heylogin and keeps what crossed.
 //!
 //! That is why the binary needs no recording code of its own: pointing
-//! `HEYL_ENDPOINT` at this is the whole of it, and `--endpoint` is a flag the
-//! shipped binary already has.
+//! `HEYL_ENDPOINT` at this is the whole of it, and a `--features dev` build
+//! reads that variable. A release build does not — it always talks to
+//! heylogin — which is the point of reading it there and nowhere else.
 //!
 //! Request metadata is rebuilt from the incoming headers rather than
 //! defaulted, because a proxy that dropped it would change what it is

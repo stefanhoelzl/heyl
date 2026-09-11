@@ -4,6 +4,29 @@ Not shipped, not published, not on any user's machine. `tools/*` is a workspace
 member so one `cargo fmt`/`clippy`/`test` pass covers it, and
 `ci/check-dep-graph.sh` lets it depend on anything — exactly like `heyl-cli`.
 
+## `--features dev` — the workbench
+
+Three commands and one environment variable exist only in a build made with
+`--features dev`. They are not in a release binary, and the reason is audience
+rather than danger: each exists because someone is reverse-engineering a
+protocol, not because a password-manager user needs it. **Point them at a
+throwaway account.**
+
+```sh
+cargo build -p heyl --features dev
+```
+
+| | |
+|---|---|
+| `heyl api …` | heylogin's gRPC surface by hand, no guards. Every one of the 123 RPCs by name, and three pure functions that close a login. `api derive` prints seeds and vault keys. |
+| `heyl doctor` | Derives every key and compares it against the public half heylogin publishes, then opens every vault. The oracle the reverse engineering is checked against (DESIGN.md §6). |
+| `heyl recovery` | Account recovery with a recovery code. **Destructive** — the server deletes the push authenticator and its locks. It was how a session was reached before the phone swipe worked; a user who has lost their phone should recover in heylogin's own app. |
+| `HEYL_ENDPOINT` | Point the binary at a recording proxy or the replay server instead of heylogin. There is no flag: a release build does not read the variable at all, so a shipped binary cannot be redirected by its environment. |
+
+The feature also binds the scenario suite's two injected ports — a writable JSON
+credential store and a scripted draw sequence — which is why a workbench build
+must not be treated as a private one: its store is a file on disk (DESIGN.md §3).
+
 ## `extract-protos.py`
 
 Regenerates and re-verifies `descriptors/heylogin.binpb`. The `.proto` sources
@@ -34,7 +57,7 @@ by varying `client-type`, the authenticator id and the signature, on one RPC.
 `heyl api` does all three as ordinary arguments, on any of the 123 RPCs:
 
 ```sh
-cargo run -p heyl --features api -- api call CreateTokens '{…}' --client-type 100
+cargo run -p heyl --features dev -- api call CreateTokens '{…}' --client-type 100
 ```
 
 The answer it found is UTF-8, and it is pinned in `heyl_domain::ChallengeEncoding`
@@ -58,17 +81,17 @@ A scenario file starts as the list of invocations you wrote and nothing else:
 ```
 
 ```sh
-cargo build -p heyl --features test-ports
+cargo build -p heyl --features dev
 HEYL_BINARY=target/debug/heyl secrets-env \
   cargo run -p heyl-fixtures -- record \
     --scenario crates/heyl-cli/tests/scenarios/recovery-then-doctor.json
 ```
 
-1. **record** — each step runs as the shipped binary, pointed by `HEYL_ENDPOINT` at a **recording
+1. **record** — each step runs as the real binary, pointed by `HEYL_ENDPOINT` at a **recording
    proxy** on loopback: it decodes each call, forwards it to the real backend, keeps what crossed,
    and encodes the reply back. The calls are heylogin's own, in the order the product actually asks
    for them, because it *is* the product asking — and the binary carries no recording code, only the
-   endpoint flag it already ships with. The proxy and the replay server are the same server over a
+   `HEYL_ENDPOINT` variable a `--features dev` build reads. The proxy and the replay server are the same server over a
    different `HeyloginApi`. stdin is piped but stdout and stderr are inherited: `render_qr` tests
    *stdout* for a terminal while `is_interactive` tests *stdin*, so a pairing code draws for your
    phone while the binary still takes the branch a replay takes.
@@ -84,7 +107,7 @@ HEYL_BINARY=target/debug/heyl secrets-env \
    replay implementation rather than two that must agree:
 
 ```sh
-HEYL_BLESS=1 cargo test -p heyl --features test-ports scenario::recovery_then_doctor
+HEYL_BLESS=1 cargo test -p heyl --features dev scenario::recovery_then_doctor
 ```
 
 Expectations come from *that* run rather than the live one: the re-key moves identifiers, and live

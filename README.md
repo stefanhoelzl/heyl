@@ -25,6 +25,16 @@ heyl session unlock                     # ask your phone, and wait for the appro
 heyl session list                       # what this machine has, and whether it is unlocked
 ```
 
+Every verb also answers a machine. `--format json` prints one compact document per line —
+`--format json-pretty` indents them — and `session create` prints its pairing URL *before* it waits,
+so a wrapper can draw its own code or open the link while the swipe is pending:
+
+```sh
+heyl --format json session list | jq -r '.[] | select(.unlockedUntil) | .slot'
+```
+
+The shapes are not a compatibility promise yet; the read path fixes them at M6.
+
 That is the whole of it. A handful of further commands — the raw gRPC surface, the hierarchy
 walk, and recovery-code recovery — exist only in a build made with `--features dev`, because
 they are there for reverse-engineering the protocol rather than for using a password manager.

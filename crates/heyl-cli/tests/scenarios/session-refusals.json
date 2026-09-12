@@ -1,0 +1,70 @@
+{
+  "meta": {
+    "code": "1111-2222-3333-4444-5555-6666",
+    "first_draw": "ERERERERERERERERERERERERERERERERERERERERERE=",
+    "note": "Hand-written: the refusals that never reach the backend, and their exit codes. `calls: []` is the assertion that matters as much as the code - a failure for some other reason (no META vault, a rejected token) could not happen without traffic, so zero calls narrows exit 2 to the local refusal the argv asks for. Which AppError variant each path produces is a unit test in heyl-app, where it is exact and costs nothing. The last two steps are arity guards for `session set`, whose optional-slot-before-required-key shape panicked in every debug build until a recording caught it."
+  },
+  "steps": [
+    {
+      "argv": [
+        "session",
+        "lock",
+        "nope"
+      ],
+      "note": "a slot this machine has never had",
+      "exit": 2,
+      "calls": [],
+      "stdout": []
+    },
+    {
+      "argv": [
+        "session",
+        "get",
+        "ci",
+        "displayname"
+      ],
+      "note": "a setting that does not exist; refused before the slot is even read",
+      "exit": 2,
+      "calls": [],
+      "stdout": []
+    },
+    {
+      "argv": [
+        "session",
+        "create",
+        "ci",
+        "--timeout",
+        "30s"
+      ],
+      "note": "under the backend's one-minute floor, refused with its own reason",
+      "exit": 7,
+      "calls": [],
+      "stdout": []
+    },
+    {
+      "argv": [
+        "session",
+        "set",
+        "ci",
+        "strict",
+        "on"
+      ],
+      "note": "three positionals: the slot is named. clap's debug assertions fire during parse, which is what made this command panic outright — so parsing is the assertion here, and the exit code is the refusal that follows",
+      "exit": 2,
+      "calls": [],
+      "stdout": []
+    },
+    {
+      "argv": [
+        "session",
+        "set",
+        "strict",
+        "on"
+      ],
+      "note": "two positionals: the slot is the selected one",
+      "exit": 2,
+      "calls": [],
+      "stdout": []
+    }
+  ]
+}

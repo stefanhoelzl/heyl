@@ -192,13 +192,21 @@ fn a_scenario_round_trips_through_the_filesystem() {
     let scenario = corpus::Scenario {
         meta: corpus::Meta {
             code: "1111-2222-3333-4444-5555-6666".to_owned(),
-            session_seed: "ERERERERERERERERERERERERERERERERERERERERERE=".to_owned(),
+            first_draw: "ERERERERERERERERERERERERERERERERERERERERERE=".to_owned(),
+            store: [("heyl/slots".to_owned(), "[\"ci\"]".to_owned())]
+                .into_iter()
+                .collect(),
             note: None,
         },
         steps: vec![
             corpus::Step {
                 argv: vec!["recovery".to_owned(), "--confirm".to_owned()],
                 stdin: Some("1111-2222-3333-4444-5555-6666\n".to_owned()),
+                env: [("HEYL_SESSION".to_owned(), "ci".to_owned())]
+                    .into_iter()
+                    .collect(),
+                note: Some("approve on your phone".to_owned()),
+                collapse: vec!["/domain.SyncService/Sync".to_owned()],
                 exit: 0,
                 redact: Vec::new(),
                 calls: vec![Record {
@@ -209,11 +217,14 @@ fn a_scenario_round_trips_through_the_filesystem() {
                     ],
                     error: None,
                 }],
-                stdout: Some(serde_json::json!({ "userId": "u" })),
+                stdout: Some(vec![serde_json::json!({ "userId": "u" })]),
             },
             corpus::Step {
                 argv: vec!["doctor".to_owned()],
                 stdin: None,
+                env: std::collections::BTreeMap::new(),
+                note: None,
+                collapse: Vec::new(),
                 exit: 3,
                 redact: vec!["/summary/elapsed".to_owned()],
                 calls: Vec::new(),
@@ -235,7 +246,23 @@ fn a_scenario_round_trips_through_the_filesystem() {
     // nothing.
     assert!(loaded.steps[1].stdout.is_none());
     assert_eq!(loaded.steps[1].exit, 3);
-    assert_eq!(loaded.session_seed().expect("32 bytes"), [0x11; 32]);
+    assert_eq!(loaded.first_draw().expect("32 bytes"), [0x11; 32]);
+
+    // The hand-written half survives the round trip: what a person must do,
+    // what the step's environment holds, and which method's repeated answers
+    // the recorder keeps once.
+    assert_eq!(loaded.steps[0].env["HEYL_SESSION"], "ci");
+    assert_eq!(
+        loaded.steps[0].note.as_deref(),
+        Some("approve on your phone")
+    );
+    assert_eq!(loaded.steps[0].collapse, ["/domain.SyncService/Sync"]);
+    assert_eq!(loaded.meta.store["heyl/slots"], "[\"ci\"]");
+
+    // A step that printed one document still reads as a list of one, because
+    // `session list` prints a top-level array and the two must be tellable
+    // apart.
+    assert_eq!(loaded.steps[0].stdout.as_ref().expect("blessed").len(), 1);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

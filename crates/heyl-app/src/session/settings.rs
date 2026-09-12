@@ -81,6 +81,36 @@ impl fmt::Display for Setting {
     }
 }
 
+/// One setting's value, as the session record holds it.
+///
+/// Typed rather than rendered, because there are two renderings and they
+/// disagree: a human reads `timeout=8h`, a document carries
+/// `"timeoutMinutes": 480` — the number the backend enforces. Handing a
+/// renderer a string would make one of those a re-parse of the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SettingValue {
+    /// An unlock window, in minutes.
+    Minutes(u32),
+    /// A flag on the session record.
+    Flag(bool),
+    /// Vault content, deliberately not fetched: reading must not reach the
+    /// phone.
+    Locked,
+}
+
+impl SettingValue {
+    /// How a person reads it: `8h`, `on`, `<locked>`.
+    #[must_use]
+    pub fn human(self) -> String {
+        match self {
+            Self::Minutes(minutes) => render_timeout(minutes),
+            Self::Flag(value) => render_bool(value).to_owned(),
+            Self::Locked => "<locked>".to_owned(),
+        }
+    }
+}
+
 /// What `session list` shows for one slot.
 pub struct SlotStatus {
     /// The local name.
@@ -155,7 +185,7 @@ pub async fn get(
     ports: &Ports<'_>,
     slot: &Slot,
     setting: Option<Setting>,
-) -> Result<Vec<(Setting, Option<String>)>, AppError> {
+) -> Result<Vec<(Setting, SettingValue)>, AppError> {
     let adopted = adopt(ports, slot).await?;
     let sync = ports.api.sync().await?;
     let session = sync
@@ -170,10 +200,10 @@ pub async fn get(
         .map(|key| {
             let value = match key {
                 // Deliberately not fetched: reading must not reach the phone.
-                Setting::DisplayName => None,
-                Setting::Timeout => Some(render_timeout(policy.timeout_minutes)),
-                Setting::Strict => Some(render_bool(policy.strict).to_owned()),
-                Setting::AutoExtend => Some(render_bool(policy.auto_extend).to_owned()),
+                Setting::DisplayName => SettingValue::Locked,
+                Setting::Timeout => SettingValue::Minutes(policy.timeout_minutes),
+                Setting::Strict => SettingValue::Flag(policy.strict),
+                Setting::AutoExtend => SettingValue::Flag(policy.auto_extend),
             };
             (key, value)
         })

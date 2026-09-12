@@ -37,7 +37,7 @@ mod lifecycle;
 mod settings;
 
 pub use lifecycle::{Created, Removed, create, finish, lock, remove, unlock_and_wait};
-pub use settings::{Setting, SlotStatus, get, list, parse_timeout, set};
+pub use settings::{Setting, SettingValue, SlotStatus, get, list, parse_timeout, set};
 
 /// The default slot's name, when the user names none.
 pub const DEFAULT_SLOT: &str = "default";

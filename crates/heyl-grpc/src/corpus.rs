@@ -15,22 +15,23 @@
 //! One file per scenario, structured by step:
 //!
 //! ```text
-//! crates/heyl-cli/tests/scenarios/recovery-then-doctor.json
-//!   meta:  the synthetic code and the seed a replay must draw first
-//!   steps: [ { argv, stdin, exit, calls: [ … ], stdout } , … ]
+//! crates/heyl-cli/tests/scenarios/session-lifecycle.json
+//!   meta:  the draw a replay must make first, and the store it starts from
+//!   steps: [ { argv, stdin, env, note, exit, collapse, calls: [ … ], stdout } , … ]
 //! ```
 //!
-//! Half of it is hand-written and half generated: the `argv`/`stdin`/`exit` of
-//! each step say what to run, and `record` fills in the rest. Grouping calls
-//! under the step that made them is what lets a replay reject a call that
-//! arrives during the wrong invocation.
+//! Half of it is hand-written and half generated: the `argv`, `stdin`, `env`,
+//! `note`, `exit` and `collapse` of each step say what to run and what a
+//! person must do while it runs, and `record` fills in the rest. Grouping
+//! calls under the step that made them is what lets a replay reject a call
+//! that arrives during the wrong invocation.
 //!
 //! **No token is ever written.** The bearer token is metadata on a
 //! [`crate::Request`] like any other, so a recorder sees it; it is dropped here
 //! rather than redacted later, because a redaction step that runs after the
 //! fact is a step that can be forgotten.
 
-use std::{fs, path::Path, sync::Mutex};
+use std::{collections::BTreeMap, fs, path::Path, sync::Mutex};
 
 use heyl_ports::ApiError;
 use prost::Message;
@@ -96,18 +97,18 @@ impl Scenario {
         fs::write(path, body + "\n").map_err(|e| io(&e))
     }
 
-    /// The seed a replay must draw first, decoded.
+    /// The bytes a replay must draw first, decoded.
     ///
     /// # Errors
     /// [`CorpusError::Malformed`] if it is not 32 base64 bytes.
-    pub fn session_seed(&self) -> Result<[u8; 32], CorpusError> {
+    pub fn first_draw(&self) -> Result<[u8; 32], CorpusError> {
         use base64::Engine as _;
         base64::engine::general_purpose::STANDARD
-            .decode(&self.meta.session_seed)
+            .decode(&self.meta.first_draw)
             .ok()
             .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
             .ok_or_else(|| CorpusError::Malformed {
-                path: "meta.session_seed".to_owned(),
+                path: "meta.first_draw".to_owned(),
                 reason: "not 32 base64-encoded bytes".to_owned(),
             })
     }
@@ -117,11 +118,45 @@ impl Scenario {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Step {
     /// The arguments after `heyl`. Hand-written.
+    ///
+    /// Without `--format json`: the runner supplies that, so a command that
+    /// stopped rendering documents would fail to parse rather than quietly
+    /// asserting prose.
     pub argv: Vec<String>,
 
     /// What to write to the process's stdin. Hand-written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stdin: Option<String>,
+
+    /// Variables to put in this step's environment. Hand-written.
+    ///
+    /// The runner clears the environment and then writes its own — the
+    /// endpoint, the store, the draw — *after* these, so a step can add
+    /// `HEYL_SESSION` without being able to point the binary at a real
+    /// backend.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+
+    /// What the person recording this has to do while it runs. Hand-written.
+    ///
+    /// `record` prints it before running the step, which makes the file its
+    /// own runbook: a sitting that needs a swipe here and an approval there
+    /// says so, and re-recording it a year later needs no memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+
+    /// Methods whose repeated identical answers are worth keeping once.
+    /// Hand-written.
+    ///
+    /// The unlock poll asks `Sync` every second until a person approves, so a
+    /// recording carries as many identical "still locked" answers as the
+    /// approval took. Replaying them costs a second each for no evidence: the
+    /// corpus is an *input*, and one locked answer followed by the granted one
+    /// drives the same loop. Declared per step rather than inferred, because a
+    /// caller that legitimately repeats a call would still make every one of
+    /// them and find a single record.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collapse: Vec<String>,
 
     /// The exit code it must return. Hand-written; defaults to success.
     #[serde(default)]
@@ -129,9 +164,18 @@ pub struct Step {
 
     /// JSON pointers into `stdout` to blank before comparing. Hand-written.
     ///
+    /// They address the **list** of documents, so `/0/pairingUrl` is a field of
+    /// the first one.
+    ///
     /// The rule is to prefer server-provided values, which are stable because
-    /// they come from the recording; this is the escape hatch for the ones
-    /// that are genuinely local.
+    /// they come from the recording; this is the escape hatch for the ones that
+    /// are genuinely local. There is one kind, and it is not hypothetical: a
+    /// value derived from the **draw sequence**. `record` binds the live run's
+    /// first draw to fresh randomness — the account seed is sealed to it in
+    /// flight — while a replay draws `meta.first_draw`, so `session create`'s
+    /// pairing URL carries a different public key in each. What the recording
+    /// printed is what the file holds, and this is how a step says which part
+    /// of it the fixture cannot reproduce.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub redact: Vec<String>,
 
@@ -139,11 +183,18 @@ pub struct Step {
     #[serde(default)]
     pub calls: Vec<Record>,
 
-    /// The JSON this step must print. Written from the replay, not the live
-    /// run: `rekey` moves identifiers, and live output would carry the real
-    /// account's.
+    /// The documents this step must print, in order. Written from the replay,
+    /// not the live run — which should print the same thing, and that is the
+    /// point: an expectation observed from the committed records is one the
+    /// committed records are known to produce.
+    ///
+    /// Always a list, even for the commands that print one document and the
+    /// ones that print none (`[]`). It has to be explicit: `session list`
+    /// prints a top-level array, so "an array means several documents" could
+    /// never be told apart from one document that is an array. [`None`] is
+    /// different again — nothing has been recorded yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stdout: Option<serde_json::Value>,
+    pub stdout: Option<Vec<serde_json::Value>>,
 }
 
 /// What a replay needs to know that is not in the calls.
@@ -155,12 +206,24 @@ pub struct Meta {
     /// The synthetic recovery code the scenario was re-keyed onto.
     pub code: String,
 
-    /// The 32-byte seed the session encryption key is derived from, base64.
+    /// The first 32 bytes the scenario's random source hands out, base64.
     ///
-    /// A recovery draws this from `RandomSource` and derives the session key
-    /// with it, so the unlock blob is sealed to whatever the replay's random
-    /// source yields first. Stating it lets a test supply exactly that.
-    pub session_seed: String,
+    /// Named for what it is rather than for what it becomes, because that
+    /// differs by flow: a recovery turns the first draw into the session
+    /// encryption key, while `session create` derives the *pairing* key from
+    /// it and the session key from the draw after. Everything the corpus is
+    /// sealed to follows from this value, so stating it is what lets a replay
+    /// open what a recording sealed.
+    pub first_draw: String,
+
+    /// The local state the scenario starts from: store slot → value.
+    ///
+    /// Hand-written, and empty for a recording. It exists for the refusals
+    /// that never reach the backend — `session create` on a slot that is
+    /// already taken — which would otherwise have to spend a phone swipe
+    /// establishing a precondition the guard never looks past.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub store: BTreeMap<String, String>,
 
     /// Anything a reader needs to know that the file cannot show.
     ///

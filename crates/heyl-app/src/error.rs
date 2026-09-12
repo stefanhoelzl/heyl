@@ -1,9 +1,11 @@
 //! The error taxonomy, and the exit codes it maps onto.
 //!
-//! `heyl-app` owns the taxonomy; `heyl-cli` maps it to §5's exit codes. Codes
-//! **2** (not found) and **3** (ambiguous selector) have no caller at M2 —
-//! selectors arrive with the read path at M3 — so they are reserved rather
-//! than invented here.
+//! `heyl-app` owns the taxonomy; `heyl-cli` maps it to §5's exit codes. There
+//! is one code per *class a caller acts on differently*, not one per variant:
+//! a script that can tell "that name does not exist" from "that value is not
+//! allowed" can do something about each, while twenty numbers would only be a
+//! second vocabulary to keep stable. **3** (ambiguous selector) is still
+//! reserved — selectors arrive with the read path.
 //!
 //! No variant carries key, plaintext or ciphertext bytes. Decrypt failures
 //! *are* distinguished from one another, because the padding-oracle argument
@@ -174,15 +176,21 @@ pub enum AppError {
 
 /// §5's exit codes.
 ///
-/// 2 and 3 are absent on purpose — nothing at M2 can produce them.
+/// 3 is absent on purpose: an ambiguous selector needs selectors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitCode {
-    /// Generic failure.
+    /// Generic failure: crypto, a vault, local state that makes no sense.
     Failure = 1,
+    /// A name that does not exist — a slot, a setting.
+    NotFound = 2,
     /// Unlock required or expired.
     UnlockRequired = 4,
     /// Network or backend error.
     Backend = 5,
+    /// Something is already there.
+    Conflict = 6,
+    /// A value the command cannot take.
+    Invalid = 7,
 }
 
 impl AppError {
@@ -197,7 +205,87 @@ impl AppError {
             // A rejected token is the one case that is *not* "locked": the
             // session is gone, and swiping again will not bring it back.
             Self::SessionGone | Self::Api(_) => ExitCode::Backend,
+
+            // A name nobody has. The keychain's own "not found" is how an
+            // unknown *slot* arrives here: every session verb reads the slot's
+            // token first.
+            Self::UnknownSetting { .. } | Self::Port(heyl_ports::PortError::NotFound { .. }) => {
+                ExitCode::NotFound
+            }
+
+            // The caller asked to make something that is already there. The
+            // action — pick another name, or remove that one — is different
+            // enough from every other failure to be worth its own number.
+            Self::SlotExists { .. } => ExitCode::Conflict,
+
+            // The command understood the request and will not take that value.
+            // `NotConfirmed` belongs here: the answer was "no", which is a
+            // value the command cannot act on rather than a fault.
+            Self::BadSettingValue { .. }
+            | Self::TimeoutTooShort { .. }
+            | Self::MalformedSlot { .. }
+            | Self::NotConfirmed => ExitCode::Invalid,
+
             _ => ExitCode::Failure,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One code per class a caller acts on differently.
+    ///
+    /// The scenario suite asserts these numbers from the outside — a step
+    /// states the exit it expects — so what they *mean* has to be pinned
+    /// somewhere a reader of the taxonomy will find it.
+    #[test]
+    fn each_class_of_failure_has_its_own_code() {
+        let cases: [(AppError, ExitCode); 7] = [
+            (
+                AppError::SlotExists {
+                    slot: "ci".to_owned(),
+                },
+                ExitCode::Conflict,
+            ),
+            (
+                AppError::UnknownSetting {
+                    key: "displayname".to_owned(),
+                },
+                ExitCode::NotFound,
+            ),
+            (
+                AppError::Port(heyl_ports::PortError::NotFound { what: "token" }),
+                ExitCode::NotFound,
+            ),
+            (AppError::TimeoutTooShort { minimum: 1 }, ExitCode::Invalid),
+            (
+                AppError::BadSettingValue {
+                    key: "strict",
+                    value: "maybe".to_owned(),
+                    expected: "on or off",
+                },
+                ExitCode::Invalid,
+            ),
+            (AppError::UnlockRequired, ExitCode::UnlockRequired),
+            (AppError::SessionGone, ExitCode::Backend),
+        ];
+
+        for (error, expected) in cases {
+            assert_eq!(error.exit_code(), expected, "{error}");
+        }
+    }
+
+    /// A keychain that cannot be reached is not a name that does not exist.
+    /// Only `NotFound` means "no such thing"; anything else the port reports is
+    /// a failure of the machine.
+    #[test]
+    fn only_a_missing_item_reads_as_not_found() {
+        let broken = AppError::Port(heyl_ports::PortError::Unavailable {
+            operation: "open the keychain",
+            reason: "no Secret Service".to_owned(),
+        });
+        assert_eq!(broken.exit_code(), ExitCode::Failure);
     }
 }

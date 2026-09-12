@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "code": "1111-2222-3333-4444-5555-6666",
+    "first_draw": "ERERERERERERERERERERERERERERERERERERERERERE=",
+    "store": {
+      "heyl/slots": "[\"ci\"]",
+      "heyl:ci/access_token": "fixture-access-token",
+      "heyl:ci/session_id": "01920000-0000-7000-8000-000000000001",
+      "heyl:ci/session_priv_key": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI="
+    },
+    "note": "Hand-written: no account, no traffic. `meta.store` is the whole precondition - a slot that already has credentials - because the guard this pins refuses before it draws a pairing key, let alone opens a channel. Spending a phone swipe to establish that would be spending it on the half of the command that never runs."
+  },
+  "steps": [
+    {
+      "argv": [
+        "session",
+        "create",
+        "ci"
+      ],
+      "exit": 6,
+      "calls": [],
+      "stdout": []
+    }
+  ]
+}

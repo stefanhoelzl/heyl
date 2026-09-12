@@ -106,8 +106,13 @@ impl Terminal for SystemTerminal {
         Ok(Zeroizing::new(line.trim().to_owned()))
     }
 
+    /// Drawn on **stderr**, and gated on stderr: the stream it writes to is
+    /// the stream that has to be a terminal. It used to test stdout, which
+    /// meant `heyl --format json session create | jq` — the one invocation a
+    /// wrapper actually makes — silently lost the code, while stdout never
+    /// received a byte of the drawing either way.
     fn render_qr(&self, payload: &str, style: QrStyle) -> bool {
-        if style == QrStyle::None || !std::io::stdout().is_terminal() {
+        if style == QrStyle::None || !std::io::stderr().is_terminal() {
             return false;
         }
         let Ok(code) = qrcode::QrCode::new(payload.as_bytes()) else {

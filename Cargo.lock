@@ -1121,16 +1121,11 @@ version = "0.0.0"
 dependencies = [
  "base64",
  "clap",
- "heyl-crypto",
- "heyl-domain",
  "heyl-grpc",
  "heyl-platform",
- "heyl-proto",
- "prost",
- "serde",
+ "heyl-ports",
  "serde_json",
  "tokio",
- "zeroize",
 ]
 
 [[package]]

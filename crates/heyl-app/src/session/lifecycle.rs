@@ -43,6 +43,12 @@ pub struct Removed {
 ///
 /// The seed lives in memory for this function and is dropped at the end of it.
 ///
+/// `announce` is handed the pairing URL the moment it exists — before the
+/// long-poll blocks on a person. It is a callback rather than a return value
+/// because the URL is only useful *during* the call: a caller rendering
+/// documents prints one for it there and then, so a wrapper can draw its own
+/// code or open the link while this function is still waiting for the swipe.
+///
 /// # Errors
 /// [`AppError::SlotExists`] if the slot is taken, or any failure pairing,
 /// registering or storing.
@@ -53,6 +59,7 @@ pub async fn create(
     policy: SessionPolicy,
     unlock_now: bool,
     style: QrStyle,
+    announce: &dyn Fn(&str),
 ) -> Result<Created, AppError> {
     if exists(ports, slot).await {
         return Err(AppError::SlotExists {
@@ -70,7 +77,9 @@ pub async fn create(
     .map_err(AppError::Crypto)?;
     let public = pairing_key.public_key();
 
-    show_pairing(ports, &pair_url(&public), style);
+    let url = pair_url(&public);
+    show_pairing(ports, &url, style);
+    announce(&url);
 
     let hash = pairing_hash(&public);
 

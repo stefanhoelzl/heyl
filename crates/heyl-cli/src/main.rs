@@ -65,6 +65,19 @@ struct Cli {
     /// negative on a light one, renders perfectly, and will not scan.
     #[arg(long, global = true, value_enum, default_value_t = output::Qr::Utf8)]
     qr: output::Qr,
+
+    /// How to print what a command has to say.
+    ///
+    /// `human` is prose and tables. `json` is one compact document per line,
+    /// which is what lets a wrapper read `session create`'s pairing URL while
+    /// the command is still waiting for a swipe; `json-pretty` is the same
+    /// documents, indented. Global rather than per-verb: a caller sets it once
+    /// and everything it drives answers in kind.
+    ///
+    /// **Not a compatibility promise yet.** The read path fixes the shape of
+    /// every document at M6; until then a shape may change.
+    #[arg(long, global = true, value_enum, default_value_t = output::Format::Human)]
+    format: output::Format,
 }
 
 #[derive(Debug, Subcommand)]
@@ -101,11 +114,6 @@ enum Command {
         /// nobody was there to object.
         #[arg(long)]
         confirm: bool,
-
-        /// Output format. A `dev` command's output is not a compatibility
-        /// promise in either shape.
-        #[arg(long, value_enum, default_value_t = output::Format::Human)]
-        format: output::Format,
     },
 
     /// UNSAFE — heylogin's gRPC surface by hand, with no guards.
@@ -148,12 +156,7 @@ enum Command {
     /// every vault. This is what confirms that the reverse-engineered
     /// derivation actually agrees with heylogin.
     #[cfg(feature = "dev")]
-    Doctor {
-        /// Output format. A `dev` command's output is not a compatibility
-        /// promise in either shape.
-        #[arg(long, value_enum, default_value_t = output::Format::Human)]
-        format: output::Format,
-    },
+    Doctor,
 }
 
 /// The `heyl session` verbs.
@@ -214,17 +217,23 @@ enum SessionCommand {
         name: Option<String>,
     },
 
-    /// Change one setting.
+    /// Change one setting: `set [SLOT] <KEY> <VALUE>`.
     ///
     /// `display-name` is vault content, so it may ask for an unlock. `timeout`,
     /// `strict` and `auto-extend` ride on the session record and never do.
+    ///
+    /// `KEY` is `display-name`, `timeout`, `strict` or `auto-extend`; `VALUE`
+    /// is `on`/`off` for the flags and a duration for `timeout`. `SLOT`
+    /// defaults to the selected one, so `session set strict on` and
+    /// `session set ci strict on` both work.
+    ///
+    /// The three arrive as one list rather than as three arguments, because an
+    /// optional positional in front of required ones is ambiguous — and clap
+    /// says so, with a debug assertion that made this command panic outright.
     Set {
-        /// The slot name.
-        name: Option<String>,
-        /// `display-name`, `timeout`, `strict` or `auto-extend`.
-        key: String,
-        /// `on`/`off` for flags, a duration for `timeout`.
-        value: String,
+        /// `[SLOT] <KEY> <VALUE>`.
+        #[arg(value_name = "ARGS", num_args = 2..=3, required = true)]
+        args: Vec<String>,
     },
 
     /// Read settings back. Never unlocks.
@@ -300,11 +309,7 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
         },
 
         #[cfg(feature = "dev")]
-        Command::Recovery {
-            email,
-            confirm,
-            format,
-        } => {
+        Command::Recovery { email, confirm } => {
             let email = match email {
                 Some(email) => email,
                 None => ports.terminal.prompt_line("heylogin email: ")?,
@@ -322,16 +327,16 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
                 heyl_domain::SessionType::BackupCode,
             )
             .await?;
-            output::recovery(&outcome, format);
+            output::recovery(&outcome, cli.format);
             Ok(std::process::ExitCode::SUCCESS)
         }
 
         Command::Session { command } => {
-            session(&ports, command, &slot, cli.wait, cli.qr.into()).await
+            session(&ports, command, &slot, cli.wait, cli.qr.into(), cli.format).await
         }
 
         #[cfg(feature = "dev")]
-        Command::Doctor { format } => {
+        Command::Doctor => {
             // An ordinary command: a locked slot asks the phone and waits,
             // rather than failing (decision 16).
             let session = heyl_app::unlock::ensure(&ports, &slot, cli.wait).await?;
@@ -339,7 +344,7 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
             // Strict slots re-lock as the command exits, so the next access
             // asks the phone again.
             heyl_app::session::finish(&ports, &slot).await;
-            output::doctor(&report, format);
+            output::doctor(&report, cli.format);
             Ok(if report.has_failures() {
                 std::process::ExitCode::from(ExitCode::Failure as u8)
             } else {
@@ -360,6 +365,7 @@ async fn session(
     selected: &Slot,
     timeout: Option<u64>,
     qr: heyl_ports::QrStyle,
+    format: output::Format,
 ) -> Result<std::process::ExitCode, AppError> {
     use heyl_app::session;
 
@@ -386,47 +392,64 @@ async fn session(
                 strict,
                 auto_extend,
             };
-            let created =
-                session::create(ports, &slot, display.as_deref(), policy, unlock, qr).await?;
-            output::session_created(&slot, &created, policy);
+            // The pairing URL reaches the caller from inside `create`,
+            // before it blocks on a person: a wrapper driving documents can
+            // draw its own code or open the link while the swipe is pending.
+            let created = session::create(
+                ports,
+                &slot,
+                display.as_deref(),
+                policy,
+                unlock,
+                qr,
+                &|url| output::pairing_url(url, format),
+            )
+            .await?;
+            output::session_created(&slot, &created, policy, format);
         }
 
         SessionCommand::Unlock { name } => {
             let slot = pick(name);
             let until = session::unlock_and_wait(ports, &slot, timeout).await?;
-            output::session_unlocked(&slot, until);
+            output::session_unlocked(&slot, until, format);
         }
 
         SessionCommand::Lock { name } => {
             let slot = pick(name);
             session::lock(ports, &slot).await?;
-            eprintln!("heyl: {} is locked", slot.name());
+            output::session_locked(&slot, format);
         }
 
-        SessionCommand::Set { name, key, value } => {
-            let slot = pick(name);
-            let setting = session::Setting::parse(&key)?;
-            session::set(ports, &slot, setting, &value).await?;
-            eprintln!("heyl: {}.{setting} = {value}", slot.name());
+        SessionCommand::Set { args } => {
+            // Two arguments name the setting on the selected slot; three name
+            // the slot first. `num_args` has already refused anything else.
+            let (slot, key, value) = match args.as_slice() {
+                [key, value] => (selected.clone(), key, value),
+                [name, key, value] => (Slot::new(Some(name)), key, value),
+                _ => unreachable!("clap accepts two or three"),
+            };
+            let setting = session::Setting::parse(key)?;
+            session::set(ports, &slot, setting, value).await?;
+            output::session_set(&slot, setting, value, format);
         }
 
         SessionCommand::Get { name, key } => {
             let slot = pick(name);
             let setting = key.as_deref().map(session::Setting::parse).transpose()?;
             let values = session::get(ports, &slot, setting).await?;
-            output::session_settings(&values);
+            output::session_settings(&slot, &values, format);
         }
 
         SessionCommand::Remove { name, force } => {
             let slot = pick(name);
             let removed = session::remove(ports, &slot, force).await?;
-            output::session_removed(&slot, &removed);
+            output::session_removed(&slot, &removed, format);
         }
 
         SessionCommand::List => {
             let slots = session::slots(ports).await;
             let statuses = session::list(ports, &slots).await?;
-            output::session_list(&statuses);
+            output::session_list(&statuses, format);
         }
     }
 

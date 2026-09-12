@@ -1,14 +1,15 @@
 //! Development tooling. Not published, not shipped, not on any user's machine.
 //!
 //! One job, which needs a real account and therefore cannot live in the test
-//! suite: `record` fills in a scenario, running the real binary against a
-//! live account and then re-keying what it captured so the throwaway account's
-//! seed and recovery code never enter the repository.
+//! suite: `record` fills in a scenario by running the real binary against a
+//! live account and keeping what crossed the wire.
 //!
-//! `rekey` is no longer a separate step. Fusing it into `record` means the raw
-//! recording — real key material, a live token — need never be written down;
-//! `--no-rekey` is the one path that writes it, for debugging a recording that
-//! went wrong, which is the right way round.
+//! It does not re-key. The recording account is a **burner whose keys are
+//! published**: its seed is in the committed fixtures, which is exactly what
+//! lets them open with nothing but this repository. The cost is a ritual
+//! rather than a program — reset the phone with the backup code, then
+//! regenerate the backup code — and `tools/README.md` states it where it
+//! cannot be missed.
 //!
 //! `derive` is gone too. It materialised a situation by copying the base corpus
 //! and editing it, back when situations were copies of one recording. Every
@@ -23,7 +24,6 @@
 //! all three as ordinary arguments, against any RPC rather than one.
 
 mod record;
-mod rekey;
 
 use clap::{Parser, Subcommand};
 
@@ -44,20 +44,23 @@ enum Command {
     /// Fill in a scenario against a real account.
     ///
     /// Reads the invocations from the scenario file, runs each as the real
-    /// binary, re-keys what was captured, and leaves a file that is safe to
-    /// commit. A destructive recovery cannot be repeated without pairing a
-    /// phone again, so the whole sequence is captured in one run.
+    /// binary, and keeps what crossed the wire — the account's own material,
+    /// published deliberately. The recording account is a burner whose keys
+    /// are public; a sitting ends by retiring them (`tools/README.md`).
     Record {
-        /// The scenario file to fill in.
-        #[arg(long)]
-        scenario: std::path::PathBuf,
+        /// Which scenario to fill in. Repeatable, and recorded in the order
+        /// given.
+        #[arg(long, conflicts_with = "all")]
+        scenario: Vec<std::path::PathBuf>,
 
-        /// Keep the raw recording instead of re-keying it.
+        /// Record every scenario that has invocations but no recording.
         ///
-        /// Writes **real key material and a live token** beside the scenario,
-        /// for debugging a recording that went wrong. Never commit the result.
+        /// One sitting, one command. The order is alphabetical with one
+        /// exception that is not cosmetic: a scenario that runs `recovery`
+        /// goes **last**, because it deletes the authenticator every other
+        /// recording pairs with.
         #[arg(long)]
-        no_rekey: bool,
+        all: bool,
     },
 }
 
@@ -79,9 +82,26 @@ fn main() -> std::process::ExitCode {
         }
     };
     let result = match cli.command {
-        Command::Record { scenario, no_rekey } => {
-            runtime.block_on(record::run(&cli.endpoint, &scenario, !no_rekey))
-        }
+        Command::Record { scenario, all } => runtime.block_on(async {
+            let paths = if all {
+                record::unrecorded()?
+            } else if scenario.is_empty() {
+                return Err("pass --scenario <file>, repeatable, or --all".to_owned());
+            } else {
+                scenario
+            };
+
+            // Each file is written as it finishes, so a failure costs the file
+            // it was filling and nothing that came before it.
+            let total = paths.len();
+            for (index, path) in paths.iter().enumerate() {
+                if total > 1 {
+                    eprintln!("=== {} of {total}: {}", index + 1, path.display());
+                }
+                record::run(&cli.endpoint, path).await?;
+            }
+            Ok(())
+        }),
     };
 
     match result {

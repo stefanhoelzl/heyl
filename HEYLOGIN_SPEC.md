@@ -765,6 +765,26 @@ also chain to each other via `ProfileProfileLock` (a profile unlocked from an up
   authenticator (§4). The whitepaper's "recovery invalidates every previously observed key" is a
   statement about the server flagging state, and it did not hold for the recovery we recorded — see
   the warning in §4.
+
+> **Measured, on a live account.** Regenerating the recovery code in the heylogin app *does* take the
+> client deletion path, and it rotates both layers at once. Before and after one regeneration,
+> nothing else touched:
+>
+> | | before → after |
+> |---|---|
+> | the four profiles | every `keyGenerationId` **changed** |
+> | three of five vaults | `generationId` **changed** — squashed under a fresh vault key |
+> | the other two vaults | `dirty: false` → **`true`**, awaiting the next commit by a client with access |
+> | authenticators | the `BACKUP_CODE` id was **deleted and a new one added**; `PUSH` and `BACKUP_OS` untouched |
+>
+> So `onlineInternalRegenerateRecovery`'s delete+add is a non-empty `deleteAuthenticatorIds`,
+> `regenerateProfiles` runs, and vault rotation follows from the `dirty` flag exactly as §7 describes.
+>
+> The two findings compose into the only reliable way to retire key material that has been observed:
+> **a recovery removes an authenticator but rotates nothing; regenerating the recovery code rotates
+> everything but leaves surviving authenticators able to unlock the new material.** Retiring a
+> published seed needs both — the authenticator deleted *and* the keys rotated afterwards. That is
+> what `tools/README.md`'s recording ritual is, and why neither half of it is optional.
 - `serialize.ts`: the first byte selects the format — `0x01` = Snappy-compressed (raw block, SnappyJS),
   `0x5B '['` = uncompressed JSON (automerge), `0x7B '{'` = uncompressed JSON (heymerge). Payload is
   `JSON.stringify(content)`.

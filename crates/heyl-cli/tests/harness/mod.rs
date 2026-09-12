@@ -12,19 +12,33 @@
 //!
 //! Two ports cannot travel over that socket and are injected instead:
 //!
-//! * **randomness**, because the recorded unlock grant is sealed to the session
-//!   key the recording derived. `meta.session_seed` states the first draw, and
-//!   `rekey` re-sealed the corpus against exactly the sequence that follows it.
+//! * **randomness**, because what a recording sealed — the phone's pairing
+//!   reply, the unlock grant — is sealed to keys the recording derived from its
+//!   own draws. `meta.first_draw` states the first one, and `rekey` re-sealed
+//!   the corpus against exactly the sequence that follows it.
 //! * **the keychain**, because the steps are separate processes and step one
-//!   stores what step two reads.
+//!   stores what step two reads. `meta.store` seeds it, for the scenarios whose
+//!   whole subject is a refusal that never reaches the backend.
 //!
 //! The clock is *not* injected: nothing compares an expiry against `now()`, and
-//! the only port sleep is the one-second pacing of the unlock poll, which costs
-//! a scenario whatever its recording contains.
+//! the only port sleep is the one-second pacing of the unlock poll — which a
+//! step keeps short by declaring `collapse`, so the corpus holds one "still
+//! locked" answer rather than one per second a person took to approve.
 //!
-//! What is asserted is the exit code and the JSON on stdout. Not stderr, which
-//! is prose for people and would make every copy edit a test failure; and not
-//! the traffic, because the corpus is an *input*, not an expectation.
+//! **The runner supplies `--format json`**; no step's argv carries it. That is
+//! deliberate: every command a scenario runs must render documents, and one
+//! that went back to printing prose fails to parse here rather than quietly
+//! asserting nothing.
+//!
+//! **A scenario with no recording fails**, naming the command that would make
+//! one. `build.rs` turns every file in the directory into a test, so writing
+//! the invocations is enough to make the suite demand the traffic behind them —
+//! which is the property worth having, because a recording costs a phone swipe
+//! and is therefore the step most likely to be put off.
+//!
+//! What is asserted is the exit code and the documents on stdout. Not stderr,
+//! which is prose for people and would make every copy edit a test failure; and
+//! not the traffic, because the corpus is an *input*, not an expectation.
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -57,23 +71,26 @@ async fn run_scenario(name: &str) {
     let mut scenario = Scenario::load(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
     let bless = std::env::var_os(BLESS_ENV).is_some();
 
+    // A scenario nobody has recorded yet fails here rather than twelve lines
+    // into a replay, where it would read as "the backend ran out of answers".
+    // Failing at all is the point: an invocation list somebody wrote and never
+    // recorded is work that is not finished, and a suite that stayed green
+    // over it would be the thing that let it be forgotten.
+    if !bless {
+        assert_unrecorded(name, &scenario, &path);
+    }
+
     let server = Server::start(Arc::new(RecordedApi::new(Vec::new())))
         .await
         .expect("a loopback port");
-    let state = TestDir::new(name);
+    let state = TestDir::new(name, &scenario.meta.store);
     let mut blessed = false;
 
     for (index, step) in scenario.steps.iter_mut().enumerate() {
         let number = index + 1;
         server.serve_from(Arc::new(RecordedApi::new(step.calls.clone())));
 
-        let outcome = invoke(
-            step,
-            &server.endpoint(),
-            &state,
-            &scenario.meta.session_seed,
-        )
-        .await;
+        let outcome = invoke(step, &server.endpoint(), &state, &scenario.meta.first_draw).await;
 
         // Reaching past what a scenario records is a test problem. It is
         // reported as one here rather than as whatever the binary printed
@@ -107,7 +124,7 @@ async fn run_scenario(name: &str) {
                     redacted(expected.clone(), &step.redact),
                     redacted(printed, &step.redact),
                 );
-                let differences = differences(&expected, &printed);
+                let differences = documents_differ(&expected, &printed);
                 assert!(
                     differences.is_empty(),
                     "{name} step {number} ({}) printed something else:\n{}\n\
@@ -132,6 +149,52 @@ async fn run_scenario(name: &str) {
     }
 }
 
+/// Fail, with the command that finishes the job, if this is not a recording.
+///
+/// Two states look alike from here and are not: a file whose steps were never
+/// run against an account, and one that was recorded but whose expectations
+/// have not been written. Each has its own next command, so each gets its own
+/// message.
+///
+/// # Panics
+/// When any step has no expected output.
+fn assert_unrecorded(name: &str, scenario: &Scenario, path: &std::path::Path) {
+    if scenario.steps.iter().all(|step| step.stdout.is_some()) {
+        return;
+    }
+
+    // A scenario with no traffic anywhere and no stated draw has never met an
+    // account. One with either has, and only needs blessing.
+    let never_recorded = scenario.steps.iter().all(|step| step.calls.is_empty())
+        && scenario.meta.first_draw.is_empty();
+
+    let message = if never_recorded {
+        format!(
+            "{name} has invocations but no recording.\n\
+             \n\
+             Record it against a real account. It asks for the swipes and approvals\n\
+             its steps declare, one banner at a time:\n\
+             \n\
+             \x20   cargo run -p heyl-fixtures -- record --scenario {}\n\
+             \n\
+             A scenario that needs no account instead states its own local state in\n\
+             `meta.store`, and carries \"stdout\": [].",
+            path.display(),
+        )
+    } else {
+        format!(
+            "{name} is recorded, but has no expected output yet.\n\
+             \n\
+             \x20   HEYL_BLESS=1 cargo test -p heyl --features dev scenario::{}\n\
+             \n\
+             Read the diff before committing: blessing writes whatever the binary\n\
+             printed, so an expectation is only as good as the reading of it.",
+            name.replace(['-', '.', ' '], "_"),
+        )
+    };
+    panic!("{message}");
+}
+
 /// What one invocation did.
 struct Outcome {
     code: i32,
@@ -144,6 +207,11 @@ async fn invoke(step: &heyl_grpc::Step, endpoint: &str, state: &TestDir, seed: &
 
     let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_heyl"));
     command
+        // Supplied here rather than written into every step's argv: what the
+        // suite asserts is the documents on stdout, so every command it runs
+        // has to render them. A verb that printed prose instead would fail to
+        // parse rather than assert an empty document list.
+        .args(["--format", "json"])
         .args(&step.argv)
         // `heyl` reads several variables from the environment on purpose, so a
         // scenario starts from nothing: the developer's own session, endpoint or
@@ -168,6 +236,11 @@ async fn invoke(step: &heyl_grpc::Step, endpoint: &str, state: &TestDir, seed: &
             command.env(name, value);
         }
     }
+
+    // What the step asked for, before what the harness owns: a scenario may add
+    // `HEYL_SESSION` to drive the selection rule, and may not point the binary
+    // at a real backend or unbind the draw sequence by naming those variables.
+    command.envs(&step.env);
 
     command
         // The scenario's own directory, so nothing reaches a real keychain even
@@ -200,27 +273,60 @@ async fn invoke(step: &heyl_grpc::Step, endpoint: &str, state: &TestDir, seed: &
     }
 }
 
-fn parse_stdout(raw: &str, name: &str, step: usize) -> serde_json::Value {
-    if raw.trim().is_empty() {
-        return serde_json::Value::Null;
-    }
-    serde_json::from_str(raw).unwrap_or_else(|e| {
-        panic!("{name} step {step} printed something that is not JSON: {e}\n{raw}")
-    })
+/// Everything a step printed on stdout, as documents.
+///
+/// A stream rather than one value: `session create` prints its pairing URL and
+/// then its result, and `--format json-pretty` spreads a document over many
+/// lines, so neither "one document" nor "one per line" would read both. A
+/// `StreamDeserializer` reads concatenated values whatever the whitespace
+/// between them.
+fn parse_stdout(raw: &str, name: &str, step: usize) -> Vec<serde_json::Value> {
+    serde_json::Deserializer::from_str(raw)
+        .into_iter::<serde_json::Value>()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap_or_else(|e| {
+            panic!("{name} step {step} printed something that is not JSON: {e}\n{raw}")
+        })
 }
 
-/// Where two documents disagree, by JSON pointer.
+/// Where two *lists* of documents disagree.
 ///
-/// The whole assertion is the output, so a failure has to read as one line
-/// about one value — not as two four-kilobyte documents printed side by side
-/// for a reader to diff by eye.
-fn differences(expected: &serde_json::Value, actual: &serde_json::Value) -> Vec<String> {
+/// The count comes first and stops there: a step that printed one document
+/// where two were expected has a different story to tell than whatever its
+/// first document says about the second's contents.
+fn documents_differ(expected: &[serde_json::Value], actual: &[serde_json::Value]) -> Vec<String> {
+    if expected.len() != actual.len() {
+        return vec![format!(
+            "  printed {} document(s), expected {}",
+            actual.len(),
+            expected.len()
+        )];
+    }
+
+    let mut out = Vec::new();
+    for (index, (want, got)) in expected.iter().zip(actual).enumerate() {
+        // The pointer prefix names the document, so a failure in a two-document
+        // step says which one.
+        let at = if expected.len() == 1 {
+            String::new()
+        } else {
+            format!("[{index}]")
+        };
+        walk(&at, want, got, &mut out);
+    }
+    trimmed(out)
+}
+
+/// Keep a failure readable.
+///
+/// The whole assertion is the output, so it has to read as a few lines about a
+/// few values — not as two four-kilobyte documents printed side by side for a
+/// reader to diff by eye.
+fn trimmed(mut out: Vec<String>) -> Vec<String> {
     /// Enough to see the shape of a problem; beyond this the file is the place
     /// to look.
     const LIMIT: usize = 12;
 
-    let mut out = Vec::new();
-    walk("", expected, actual, &mut out);
     if out.len() > LIMIT {
         let extra = out.len() - LIMIT;
         out.truncate(LIMIT);
@@ -276,13 +382,23 @@ fn brief(value: &serde_json::Value) -> String {
 }
 
 /// Blank the values a step declares as local rather than server-provided.
-fn redacted(mut document: serde_json::Value, pointers: &[String]) -> serde_json::Value {
+///
+/// Pointers address the **list** of documents the step printed, so
+/// `/0/pairingUrl` is a field of the first one. A miss is not an error: a
+/// pointer describes where a value lives when it is there.
+fn redacted(documents: Vec<serde_json::Value>, pointers: &[String]) -> Vec<serde_json::Value> {
+    let mut list = serde_json::Value::Array(documents);
     for pointer in pointers {
-        if let Some(slot) = document.pointer_mut(pointer) {
+        if let Some(slot) = list.pointer_mut(pointer) {
             *slot = serde_json::Value::String("<redacted>".to_owned());
         }
     }
-    document
+    match list {
+        serde_json::Value::Array(documents) => documents,
+        // Unreachable: it was an array a moment ago, and a pointer cannot
+        // replace the root.
+        other => vec![other],
+    }
 }
 
 /// A scenario's own directory, removed when it finishes.
@@ -291,7 +407,7 @@ struct TestDir {
 }
 
 impl TestDir {
-    fn new(name: &str) -> Self {
+    fn new(name: &str, store: &std::collections::BTreeMap<String, String>) -> Self {
         let unique = format!(
             "heyl-scenario-{name}-{}-{:?}",
             std::process::id(),
@@ -302,7 +418,21 @@ impl TestDir {
         );
         let path = std::env::temp_dir().join(unique);
         std::fs::create_dir_all(&path).expect("a scratch directory");
-        Self { path }
+        let dir = Self { path };
+
+        // The local state a scenario says it starts from. Written in the shape
+        // `TestState` reads, because that is the only reader it will ever have
+        // — and a scenario about a purely local refusal can then state its
+        // precondition instead of spending a phone swipe on it.
+        if !store.is_empty() {
+            let state = serde_json::json!({ "secrets": store, "draws": 0 });
+            std::fs::write(
+                dir.store(),
+                serde_json::to_string_pretty(&state).expect("a JSON object"),
+            )
+            .expect("the scenario's store is writable");
+        }
+        dir
     }
 
     fn store(&self) -> PathBuf {
@@ -313,5 +443,47 @@ impl TestDir {
 impl Drop for TestDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `redact` addresses the list of documents, because that is what a step
+    /// prints. The value it exists for is `session create`'s pairing URL: the
+    /// recording's carries a fresh random key, the fixture's carries the key a
+    /// replay derives, and they are both right.
+    #[test]
+    fn a_pointer_reaches_into_the_document_it_names() {
+        let printed = vec![
+            serde_json::json!({ "pairingUrl": "https://app.heylogin.com/pair#live" }),
+            serde_json::json!({ "slot": "ci", "sessionId": "0192a1b2" }),
+        ];
+        let blanked = redacted(printed, &["/0/pairingUrl".to_owned()]);
+
+        assert_eq!(blanked[0]["pairingUrl"], "<redacted>");
+        assert_eq!(blanked[1]["sessionId"], "0192a1b2", "only what was named");
+    }
+
+    /// A pointer that finds nothing is not a failure: it says where a value
+    /// lives when it is there, and a step that exits early prints less.
+    #[test]
+    fn a_pointer_that_misses_is_harmless() {
+        let printed = vec![serde_json::json!({ "slot": "ci" })];
+        let blanked = redacted(printed, &["/0/pairingUrl".to_owned(), "/7/x".to_owned()]);
+        assert_eq!(blanked, vec![serde_json::json!({ "slot": "ci" })]);
+    }
+
+    /// Two documents where one was expected is its own message: what the first
+    /// one says about the second's contents is not the story.
+    #[test]
+    fn a_missing_document_is_reported_as_a_count() {
+        let differences = documents_differ(
+            &[serde_json::json!({ "a": 1 }), serde_json::json!({ "b": 2 })],
+            &[serde_json::json!({ "a": 1 })],
+        );
+        assert_eq!(differences.len(), 1);
+        assert!(differences[0].contains("printed 1 document(s), expected 2"));
     }
 }

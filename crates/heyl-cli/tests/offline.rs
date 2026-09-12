@@ -31,7 +31,7 @@ fn scenario_path() -> PathBuf {
 #[tokio::test]
 async fn a_declined_prompt_does_not_reach_create_tokens() {
     let scenario = Scenario::load(&scenario_path()).expect("the scenario loads");
-    let seed = scenario.session_seed().expect("a 32-byte seed");
+    let seed = scenario.first_draw().expect("a 32-byte seed");
     let recovery = &scenario.steps[0];
 
     let api = DomainApi::new(

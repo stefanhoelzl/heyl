@@ -251,7 +251,7 @@ in error messages, and never passed as command-line arguments to child processes
 ```
 heyl/
 ├── descriptors/              heylogin.binpb — the sole committed schema artifact
-├── tools/heyl-fixtures/      records a scenario against a real account, and re-keys it
+├── tools/heyl-fixtures/      records a scenario against a real account (§6: the account is a burner)
 ├── tools/extract-protos.py   regeneration + round-trip verification
 └── crates/
     ├── heyl-crypto/      §2 primitives, KDF, typed contexts       [leaf, deterministic]
@@ -792,18 +792,38 @@ tool that runs unattended.
 - A secret goes to **stdout, raw**, with a trailing newline only when stdout is a TTY, so
   `$(heyl get x)` is exact and interactive use still looks right.
 - Everything else — prompts, progress, QR codes, warnings — goes to **stderr**.
-- `--format json` on `list` and `get` emits a stable, documented shape. `--format` is the only
-  compatibility promise; human table output may change.
 - Secrets never appear in logs, errors, or `--format json` unless explicitly requested.
+
+**`--format <human|json|json-pretty>` is global**, beside `--session`, `--wait` and `--qr`: a
+wrapper sets it once and everything it drives answers in kind. `json` is **one compact document
+per line**; `json-pretty` is the same documents indented. Under either, the prose report is *not*
+also printed — a document is the machine's rendering of it, and saying it twice on two streams
+would make a consumer parse what it already has. Prompts, progress and warnings still reach
+stderr, because they happen while stdout has nothing yet.
+
+**Every `session` verb emits a document**, and `session create` emits two: `{"pairingUrl": …}`
+before it blocks on a person, then its result. That is what the one-document-per-line shape buys —
+a wrapper can draw its own code or open the link while the swipe is still pending. `session list`
+prints a bare array, like the read path's own listing, so both are read the same way.
+
+None of these shapes is a compatibility promise yet; the read path fixes the surface at M6. That is
+said here and in `--help` rather than carried in every payload as a field consumers must skip.
+
+**Failures a command reports are documents; failures that abort it are prose.** `session remove
+--force` completes and says `{"tombstoned": false, "deleted": true}`; `SlotExists` prints `heyl: …`
+on stderr and exits non-zero, with nothing on stdout. What a script branches on is then the exit
+code, and the table has one entry per class a caller acts on differently rather than one per error:
 
 | Exit | Meaning |
 |---|---|
 | 0 | success |
-| 1 | generic failure |
-| 2 | not found |
+| 1 | generic failure — crypto, a vault, local state that makes no sense |
+| 2 | not found — an unknown slot, an unknown setting |
 | 3 | ambiguous selector |
 | 4 | unlock required / expired |
 | 5 | network or backend error |
+| 6 | conflict — the slot already exists |
+| 7 | invalid — a value the command cannot take |
 
 ### The dev surface — `--features dev`
 
@@ -921,12 +941,16 @@ roughly **37 columns × 19 rows**, which fits an 80×24 terminal.
 
 Behaviour, implemented behind the `Terminal` port:
 
-- Render the QR when stdout is a TTY.
+- The drawing goes to **stderr**, and renders when *stderr* is a terminal — the stream it writes
+  to is the stream that has to be one. Gating on stdout, as this once did, meant
+  `heyl --format json session create | jq` — the one invocation a wrapper actually makes — lost
+  the code, while stdout never received a byte of the drawing either way.
 - **Always print the URL underneath, on stderr**, whether or not the QR rendered. One line, and
   it is the difference between a recoverable and an unrecoverable login attempt.
 - `--qr <utf8|ascii|none>`. ASCII (two spaces per module) is twice as wide but survives fonts
   with non-square cells or ligatures.
-- Never render when output is piped or under `--format json` — URL only.
+- Under `--format json` the URL is also a document on stdout, which is what makes pairing
+  drivable by something other than a person reading a terminal.
 
 Two failure modes to get right, because both fail *silently* — the code renders, looks correct,
 and simply will not scan:
@@ -976,9 +1000,35 @@ in CI now means shipping the workbench there on purpose.
 | Live confirmation | `tools/heyl-fixtures` against a real account — a **tool**, never a test | authoritative | Yes |
 
 **A scenario is a list of `heyl` invocations, and the file it lives in is the whole test.** It
-holds what you wrote — the `argv`, `stdin` and expected exit of each step — and what `record`
-filled in: the calls that step made against a real account, and the JSON it printed. `cargo test`
-replays it against the binary; nothing else is needed to read one.
+holds what you wrote — the `argv`, `stdin`, `env`, expected `exit`, the `note` saying what a person
+must do while the step runs, any `collapse`, and any `redact` — and what `record` filled in: the
+calls that step made against a real account, and the documents it printed, kept as it ran. `cargo test` replays it against the
+binary; nothing else is needed to read one.
+
+**The runner supplies `--format json`; no step's argv carries it.** That is what makes the suite's
+assertion structural rather than a convention: every command a scenario runs must render documents,
+and one that went back to prose fails to parse here rather than quietly asserting nothing. A step's
+`stdout` is therefore always a *list* of documents — `[]` where a command prints none — because
+`session list` prints a top-level array and "an array means several documents" could never be told
+apart from it.
+
+**A scenario with no recording fails the suite**, naming the command that would make one. Writing
+the invocations is therefore enough to demand the traffic behind them: the recording is the step
+that costs a phone swipe, which makes it the one most likely to be put off, and a green suite over
+an unrecorded file is what would let it be forgotten. The two states are distinguishable in the
+file — `"stdout": []` is "this printed nothing", an absent `stdout` is "nobody has run this yet".
+
+**What the live run printed is what the fixture prints**, with one exception the step declares.
+Nothing printed is derived from the seed, and the one printed value that crosses the re-encrypted
+layer — a session's display name, which is vault content — survives byte-for-byte. A value derived
+from the *draw sequence* does not: `record` binds the live run's first draw to fresh randomness,
+because the account seed is sealed to it in flight, while a replay draws `meta.first_draw`. So
+`session create`'s pairing URL goes in `redact`, which is what that field has always been for.
+
+A scenario may also state the local state it starts from, as `meta.store`. It exists for the
+refusals that never reach the backend: `session create` on a slot that is already taken is decided
+before a pairing key is drawn, so establishing that precondition with a phone swipe would spend it
+on the half of the command that never runs.
 
 The **corpus is an input, not an expectation**: the assertion is the exit code and the JSON on
 stdout, never the traffic. Records are also **pre-mapping** — they hold what the backend sent, not
@@ -992,13 +1042,35 @@ body, an expired unlock from `session lock` followed by `doctor --wait 1`. The o
 `token_refresh_needed`, which the backend sets as a token ages and `CreateTokensRequest` has no
 field to ask for; that scenario is hand-made and says so in its own `meta.note`.
 
-Two rules keep it committable. **No token is ever written**: the bearer token is metadata on a
-`Request<T>`, so the recorder sees it, and it is dropped at the point of recording rather than
-redacted afterwards, because a redaction step that runs later is one that can be forgotten. And
-**the corpus must open with the committed test code and with nothing else** — the re-key asserts
-both halves before writing, which is what catches a layer it forgot. The re-key replaces exactly
-what the seed could be recovered from; its breadth is a *consequence* of replacing the seed, since
-everything derived from it must then be rebuilt, and it deliberately keeps the real plaintext.
+**The corpus is the account, and the account is published.** A recording carries heylogin's own
+responses — which means the seed, in the pairing reply, and everything that follows from it: profile
+seeds, vault keys, vault contents. `meta.first_draw` states the draw that reply is sealed to, so a
+replay derives the same ephemeral key and opens it. That is what makes a fixture self-contained: it
+opens with nothing but this repository.
+
+It also means the recording account's keys are public, and this design accepts that rather than
+paying to avoid it. The alternative was a **re-key**: walk the real chain, rebuild every layer —
+authenticator keys, profile seeds, vault keys, every lock, every commit — under synthetic material,
+keeping the real plaintext. It worked, and it cost about five hundred lines, ~25 of which actually
+guarded anything; the rest existed so the fixture would still decrypt. For an account whose every
+credential is fabricated, that was the wrong trade.
+
+What replaces it is a **ritual, not a program**, performed after each sitting and before publishing:
+reset the phone with the backup code, then regenerate the backup code. The first deletes the
+authenticator whose seed was published, so it can no longer log in; the second regenerates every
+profile seed and rotates the vault keys, so the keys it already derived are stale. Neither half works
+alone — both were measured on the live account, and `HEYLOGIN_SPEC.md` §7 records what moved.
+
+**The rule this replaces is worth stating plainly, because it is gone.** The corpus no longer
+contains "nothing that is or verifies a secret". It contains the account's secrets, deliberately, and
+the protection is that the account is a burner, holds nothing real, and has its keys retired. Two
+values are still replaced at recording time: the access token, because a bearer token in a public
+repository is what secret scanners look for, and the account holder's email address — the account is
+published on purpose, a person's mailbox is not.
+
+**The failure mode is honest about itself: it is silent.** A forgotten ritual turns no test red. So
+`record` prints both steps as it exits, `tools/README.md` leads with them, and the account may never
+hold a real credential — that is the whole of the defence, and it is a procedural one.
 
 **No automated test ever touches a real account.** The line is: tests replay recorded flows; only
 `tools/` talks to heylogin. A live confirmation is a deliberate act someone performs, never a test
@@ -1031,9 +1103,10 @@ rule and reading `DomainError` from the wrong `tonic` API — both lived in `hey
 passed green precisely because the test hand-built the `Status` the way the broken code read it. A
 port-level fake cannot catch either, by construction.
 
-**Only two ports are injected, and neither is a fake.** Randomness, because a recorded unlock grant
-is sealed to the session key the recording derived, so a replay must draw the same bytes — the
-scenario states them. And the keychain, because the steps of a scenario are separate processes:
+**Only two ports are injected, and neither is a fake.** Randomness, because what a recording sealed
+— the phone's pairing reply, the unlock grant — is sealed to keys the recording derived from its own
+draws, so a replay must draw the same bytes; the scenario states the first as `meta.first_draw` and
+the source continues with counter bytes. And the keychain, because the steps of a scenario are separate processes:
 `KeyringStore` would write into the user's own login keyring and is absent on CI, and
 `HeadlessSecretStore` cannot write at all. Both live behind the default-off `dev` feature, so a
 writable on-disk credential store cannot exist in a *release* binary (§3); they add no dependency,
@@ -1041,8 +1114,10 @@ so the graph `cargo tree` reports is identical either way — what `dev` genuine
 graph is `prost-reflect`, and `ci/check-dep-graph.sh` fails the build if it reappears. The terminal stays
 real — a step's stdin is piped, which is why the confirmation prompt is the one path a scenario
 cannot reach — and so does the clock: nothing compares an expiry against `now()`, and the only port
-sleep is the one-second pacing of the unlock poll, which costs a scenario whatever its recording
-contains.
+sleep is the one-second pacing of the unlock poll. A step keeps that cheap by declaring `collapse`,
+which tells `record` to keep one record per run of identical consecutive answers: the corpus is an
+*input*, and a replay drives the same loop from one "still locked" answer followed by the granted
+one, rather than from one per second a person took to approve.
 
 **Test data lives beside the test that reads it.** A scenario is
 `crates/heyl-cli/tests/scenarios/<name>.json`, the upstream vectors are in
@@ -1050,11 +1125,14 @@ contains.
 no shared fixture tree: each of those had exactly one reader, and a crate that owns its evidence
 needs no `../..` to reach it.
 
-**Nothing that is or verifies a secret is ever committed.** The re-key replaces, rather than
-redacts: the recovery code, the seed, `secretInfo.checksum` (it is `SHA512(seed)[:32]` — an offline
-*verifier*, and publishing one hands out an oracle), the access token, the session private key, and
-every blob that would decrypt to the seed under a committed key. The rule that makes it checkable:
-the fixture must open with the committed **test** seed and with nothing else.
+**Secrets are committed, and retired instead.** A fixture carries the recording account's seed, the
+`secretInfo.checksum` that verifies its recovery code, the session private key and every blob that
+decrypts under them — because a fixture that opens with nothing but the repository is worth more
+than one that never held the account's material, *for an account that holds nothing real*. The
+recovery code itself never crosses the wire, so it is never committed; regenerating it is half of
+the ritual that makes the rest inert. `recovery-then-doctor.json` is the exception in the other
+direction: it was re-keyed when that was the design, and it stays that way because it cannot be
+re-recorded.
 
 **The key-hierarchy row is weaker than the others, deliberately.** Nothing upstream covers
 heylogin's *composition* — which context string, concatenated in which order, truncated where — so
@@ -1111,8 +1189,9 @@ reached has been more useful than mechanically shifting the numbers. What remain
   traffic they made, the output they must print — replayed against the real binary over a
   loopback gRPC-Web socket served from the recording. `build.rs` emits one test per file, so
   dropping a recording in is the whole act of adding a scenario. `derive` and the per-call fixture
-  tree are gone; `record` and `rekey` are one command, so a raw recording need never be written to
-  disk. What is left is recording the session surface, which needs a phone.
+  tree are gone, and so is the re-key: the recording account is a burner whose keys are published,
+  retired by a ritual after each sitting (§6). What is left is recording the session surface, which
+  needs a phone.
 - ~~**Session registration**~~ — done: `SessionMetadata` write, tombstone on `session remove`,
   `session list`, and the phone-swipe pairing it needs. What is left is the read path using it.
 - **UX completion** — `totp`, `run`, `completion`, output contract, exit codes, error taxonomy.

@@ -39,12 +39,40 @@ python3 -m venv .venv && ./.venv/bin/pip install protobuf
 
 ## `heyl-fixtures`
 
-Both subcommands need a real account, which is why they are here rather than in
-the test suite. Run them under `secrets-env` so nothing reaches shell history:
+`record` needs a real account and your phone, which is why it is here rather
+than in the test suite. It needs **no secrets**: pairing is a swipe, and
+nothing is re-keyed afterwards.
 
-```sh
-secrets-env cargo run -p heyl-fixtures -- record --out .work/session.json
-```
+### The recording account is a burner whose keys are published
+
+A committed fixture carries the account's **seed** — it is in the pairing reply,
+and `meta.first_draw` states the draw it is sealed to — and therefore its
+profile seeds, its vault keys and its vault contents. That is deliberate: it is
+what lets a scenario open with nothing but this repository, and it is why there
+is no re-key. The alternative was five hundred lines rebuilding every layer
+under synthetic keys, to protect an account that holds only fabricated
+credentials.
+
+**So the account may never hold anything real, and its keys must be retired
+after every sitting, before publishing:**
+
+1. **Reset the phone with the backup code.** The backup-code login makes the
+   server delete the PUSH authenticator, and the phone re-enrols with a fresh
+   seed, so the published seed's authenticator no longer exists and cannot log
+   in. *On its own this rotates nothing* — measured: a recovery left every
+   profile and vault generation unchanged.
+2. **Regenerate the backup code in the app.** That deletes an authenticator
+   through the client path, which regenerates every profile seed and rotates
+   the vault keys — measured: four profiles and five vaults moved
+   (`HEYLOGIN_SPEC.md` §7). *On its own this is useless*, because a surviving
+   authenticator's published seed simply receives the new locks.
+
+Neither half works without the other, and the order is reset-then-regenerate.
+`record` prints both before it exits, because forgetting them is silent: no
+test goes red, there is just a live account in a public repository.
+
+Two vaults may come back `dirty: true` rather than rotated — they squash at the
+next commit by a client with access, so open the app and touch them.
 
 ### `probe-signing` — retired at M3
 
@@ -65,66 +93,104 @@ and in the offline suite.
 
 ### `record`
 
-Fills in a scenario against a real account, in one command with four phases.
+Fills in a scenario against a real account, in one command.
 
-A scenario file starts as the list of invocations you wrote and nothing else:
+A scenario file starts as the list of invocations you wrote and nothing else.
+It is already a test at that point, and a **failing** one: `build.rs` turns every
+file in `crates/heyl-cli/tests/scenarios/` into a `#[test]`, and one with no
+recording fails with the command that finishes it. That is the point — an
+invocation list nobody recorded is unfinished work, and a suite that stayed
+green over it is what would let it be forgotten.
 
 ```json
 {
-  "meta": { "code": "", "session_seed": "" },
+  "meta": { "code": "", "first_draw": "" },
   "steps": [
-    { "argv": ["recovery", "--email", "you@example.com", "--confirm", "--format", "json"],
-      "stdin": "1111-2222-3333-4444-5555-6666\n" },
-    { "argv": ["doctor", "--format", "json"] }
+    { "argv": ["session", "create", "ci", "--timeout", "1h"],
+      "note": "scan the QR below with the heylogin app" },
+    { "argv": ["session", "unlock", "ci"],
+      "note": "approve the notification on your phone",
+      "collapse": ["/domain.SyncService/Sync"] },
+    { "argv": ["session", "get"], "env": { "HEYL_SESSION": "ci" } },
+    { "argv": ["session", "list"] }
   ]
 }
 ```
 
-```sh
-cargo build -p heyl --features dev
-HEYL_BINARY=target/debug/heyl secrets-env \
-  cargo run -p heyl-fixtures -- record \
-    --scenario crates/heyl-cli/tests/scenarios/recovery-then-doctor.json
-```
+`note` is printed as a banner before its step runs, so the file is its own
+runbook: a sitting that wants a swipe here, an approval there and a deliberate
+*non*-approval somewhere else says so, and re-recording it a year later needs no
+memory. `collapse` names the methods whose repeated identical answers are kept
+once — the unlock poll asks `Sync` every second until you approve, and a replay
+drives the same loop from one locked answer followed by the granted one. `env`
+is what a step needs in its environment; the harness writes its own variables
+afterwards, so a step can add `HEYL_SESSION` and cannot redirect the endpoint.
+`--format json` is supplied by the recorder and the runner alike, and never
+appears in argv.
 
-1. **record** — each step runs as the real binary, pointed by `HEYL_ENDPOINT` at a **recording
-   proxy** on loopback: it decodes each call, forwards it to the real backend, keeps what crossed,
-   and encodes the reply back. The calls are heylogin's own, in the order the product actually asks
-   for them, because it *is* the product asking — and the binary carries no recording code, only the
-   `HEYL_ENDPOINT` variable a `--features dev` build reads. The proxy and the replay server are the same server over a
-   different `HeyloginApi`. stdin is piped but stdout and stderr are inherited: `render_qr` tests
-   *stdout* for a terminal while `is_interactive` tests *stdin*, so a pairing code draws for your
-   phone while the binary still takes the branch a replay takes.
-2. **rekey** — every secret becomes synthetic while the real heylogin *plaintext* stays: genuine
-   `serialize` framing, genuine snappy, a genuine heymerge document. This exists because the seed
-   alone is full account access (login is just `sign(challenge, login_key(seed))`; the recovery code
-   is only a way to reach it), so committing the throwaway account's seed would burn it. It asserts
-   both halves before writing — that the committed test code opens the result, and that the real one
-   does not. The second half catches a layer the re-key forgot: a fixture the account's own code
-   still opens is one that still contains it. It **operates on typed messages**, not frames, so a
-   re-key is rewriting fields.
-3. **replay** and 4. **expect** — the scenario suite itself, run with `HEYL_BLESS=1`, so there is one
-   replay implementation rather than two that must agree:
+`redact` blanks a value before comparing, for anything a replay cannot
+reproduce. Nothing in a freshly recorded scenario needs it any more — the
+recording's own first draw is committed, so even `session create`'s pairing URL
+comes out the same on replay — but the field stays for the fixtures that were
+re-keyed before this, whose committed output was printed with different key
+material.
 
 ```sh
-HEYL_BLESS=1 cargo test -p heyl --features dev scenario::recovery_then_doctor
+cargo run -p heyl-fixtures -- record --all          # everything that has no recording
+cargo run -p heyl-fixtures -- record \               # or name them, in the order given
+  --scenario crates/heyl-cli/tests/scenarios/session-lifecycle.json
 ```
 
-Expectations come from *that* run rather than the live one: the re-key moves identifiers, and live
-output would carry the real account's. Replaying also proves the re-keyed scenario actually drives
-the binary rather than merely parsing.
+`--all` records every scenario whose steps have no expected output — the same test the suite applies
+— in alphabetical order, **except that a scenario driving `recovery` goes last**: the backup-code
+login deletes the PUSH authenticator every other recording pairs with, so taking it first would
+waste the sitting. Each file is written as it finishes, so a failure costs the file it was filling
+and nothing before it.
 
-Between phases 1 and 2 the calls hold **real key material and a live token**. They stay in memory
-and are never written — `--no-rekey` is the one path that writes them down, for debugging a
-recording that went wrong, and it says so.
+It **builds `heyl --features dev` itself** and records that binary, because a
+recording costs a phone swipe and a device on a real account, and the way to
+waste one is to drive a `heyl` from last week. `HEYL_BINARY` overrides it, for
+the case this cannot serve: recording against a binary that is deliberately not
+the working tree's.
 
-`recovery-then-doctor.json` was not produced this way: it was converted from the corpus M2 captured,
+Each step runs as the real binary, pointed by `HEYL_ENDPOINT` at a **recording proxy** on loopback:
+it decodes each call, forwards it to the real backend, keeps what crossed, and encodes the reply
+back. The calls are heylogin's own, in the order the product actually asks for them, because it *is*
+the product asking — and the binary carries no recording code, only the endpoint variable a
+`--features dev` build reads. The proxy and the replay server are the same server over a different
+`HeyloginApi`. What the step printed is kept too, and it is the expectation: stdout is captured while
+stderr stays inherited, so the QR still draws for your phone.
+
+`meta.first_draw` is set to the draw the run actually made, which is what lets a replay derive the
+same ephemeral pairing key and open the seed the phone sent. Two values do not go in verbatim: the
+**access token**, because a bearer token in a public repository is what secret scanners are built to
+find, and the **email address**, because the account is published on purpose and a person's mailbox
+is not part of that bargain. Everything else is exactly what heylogin sent.
+
+The file is a test the moment `record` returns, and the next thing to run is the suite:
+
+```sh
+cargo test -p heyl --features dev scenario::session_lifecycle
+```
+
+Green means the corpus drives the binary to the same documents the live account did. `HEYL_BLESS=1`
+exists for the other direction: when you change what a command prints *on purpose* and want the
+expectations rewritten.
+
+`recovery-then-doctor.json` predates all of this. It was converted from the corpus M2 captured,
 because that recording holds the one shape no later one can reproduce — a `CreateChallenge` that
-still lists a push authenticator, which performing the recovery deletes. It carries no request
-bodies for the same reason its predecessor did not, so its calls match on method and order alone.
+still lists a push authenticator, which performing the recovery deletes — and it is **re-keyed**,
+carrying synthetic material rather than the account's. It still replays; nothing needs to be done to
+it. It simply cannot be reproduced, so leave it alone.
+
+Two scenarios need no account at all — `session-slot-exists` and `session-refusals` — because what
+they pin is a refusal that never reaches the backend. They are hand-written, `calls` is `[]`, and
+`meta.store` states the local state they start from. The suite tells those apart from an unrecorded
+file by `stdout`: `[]` is "it printed nothing", absent is "nobody has run this yet".
 
 **What no fixture can carry.** Evidence that our context salts match
-heylogin's. Re-keyed ciphertexts are made with our own salts, so they prove the
-plumbing and nothing about the agreement — and any artifact that *could* prove
-it offline would, by construction, be openable with a committed key. That
-confirmation is `heyl doctor` against a real account, and it is live-only.
+heylogin's. A recording proves the plumbing — real framing, real snappy, a real
+heymerge document, through the real mapping — but any artifact that could prove
+the *agreement* offline would, by construction, be openable with a committed
+key, which is precisely what these fixtures are. That confirmation is
+`heyl doctor` against a real account, and it is live-only.

@@ -28,8 +28,25 @@
 //!   heyl api decode --blob … --key …              -> a heymerge document (pure)
 //! ```
 //!
+//! That loop starts at a **recovery code**, which is the destructive login: it
+//! disconnects the phone authenticator. A session established by a swipe
+//! reaches the same place without destroying anything, because the seed is
+//! served as a grant rather than derived from a code:
+//!
+//! ```text
+//! heyl session create … --unlock                  -> a session, one swipe
+//! heyl api call Sync                              -> sessionUnlock.encryptedSecret
+//!   heyl api open-unlock --key … --blob …         -> seed          (pure)
+//! heyl api call AuthenticatorService/List         -> secretSalt
+//!   heyl api derive --seed … --sync … --commits … -> vault keys    (pure)
+//!   heyl api decode --blob … --key …              -> a heymerge document (pure)
+//! ```
+//!
 //! Nothing is ambient: no keychain is read, and the token comes from the
-//! request you build. `HEYL_TOKEN=bad heyl api call Sync` reproduces
+//! request you build. The session key that `open-unlock` needs is an argument
+//! for the same reason the vault key `decode` needs is one — in a `--features
+//! dev` build `HEYL_STORE` puts both it and the token in a JSON file you can
+//! read. `HEYL_TOKEN=bad heyl api call Sync` reproduces
 //! `DomainError 30420` against the live backend, which is how M0 produced
 //! `heyl-grpc/tests/protocol/sync-bad-token` by hand.
 
@@ -139,14 +156,26 @@ pub enum Api {
         parallelism: u32,
     },
 
-    /// Walk the key hierarchy from a recovery code. **No network.**
+    /// Walk the key hierarchy from a seed. **No network.**
     ///
     /// Prints the seed, and — given a `Sync` response to read the locks from —
     /// every profile seed and vault key under it. This is the walk `heyl
     /// doctor` performs; printing the keys rather than a comparison is what
     /// makes them usable with `decode`, and is one of the reasons this command
     /// is not shipped.
+    ///
+    /// The seed comes from one of two places, and they are not equivalent:
+    /// `--seed` takes one already in hand — from `open-unlock`, i.e. from a
+    /// swipe, destroying nothing — while the Argon2id parameters derive one
+    /// from a recovery code, the login that disconnects the phone.
     Derive {
+        /// The seed, base64 — as `open-unlock` prints it.
+        ///
+        /// The non-destructive input. Without it the seed is derived from a
+        /// recovery code, which needs `--memory-kib` and `--iterations`.
+        #[arg(long, conflicts_with_all = ["memory_kib", "iterations"])]
+        seed: Option<String>,
+
         /// A `Sync` response, as `heyl api call Sync` prints it.
         ///
         /// Without it only the seed is derivable: the profile seeds come out
@@ -167,20 +196,52 @@ pub enum Api {
         authenticator: Option<String>,
 
         /// The authenticator's `secretSalt`, base64.
+        ///
+        /// Needed either way: it salts the authenticator layer, and under a
+        /// recovery code it is also the Argon2id salt. With `--seed` it is the
+        /// *granting* authenticator's, which `AuthenticatorService/List` publishes and
+        /// `Sync` deliberately does not.
         #[arg(long)]
         salt: String,
 
-        /// Argon2id memory cost, in KiB.
-        #[arg(long)]
-        memory_kib: u32,
+        /// Argon2id memory cost, in KiB. Recovery-code input.
+        #[arg(long, required_unless_present = "seed")]
+        memory_kib: Option<u32>,
 
-        /// Argon2id iterations.
-        #[arg(long)]
-        iterations: u32,
+        /// Argon2id iterations. Recovery-code input.
+        #[arg(long, required_unless_present = "seed")]
+        iterations: Option<u32>,
 
-        /// Argon2id parallelism.
+        /// Argon2id parallelism. Recovery-code input.
         #[arg(long, default_value_t = 1)]
         parallelism: u32,
+    },
+
+    /// Open a session's unlock grant. **No network.**
+    ///
+    /// The one piece of arithmetic between a session and its seed, and the
+    /// swipe-side counterpart of `sign-challenge`:
+    ///
+    /// ```text
+    /// asym_decrypt(sessionPrivateKey, sessionUnlock.encryptedSecret) -> seed
+    /// ```
+    ///
+    /// Both inputs are arguments rather than ambient state, like the vault key
+    /// `decode` takes. In a `--features dev` build they are both to hand:
+    /// `HEYL_STORE` writes the session private key to a JSON file, and the blob
+    /// is `syncUpdate.sessionUnlock.encryptedSecret` from `api call Sync`.
+    ///
+    /// The backend stops serving the blob when the unlock lapses, so this
+    /// fails on a locked session by having nothing to open rather than by
+    /// refusing.
+    OpenUnlock {
+        /// This session's X25519 private key, base64.
+        #[arg(long)]
+        key: String,
+
+        /// `syncUpdate.sessionUnlock.encryptedSecret`, base64.
+        #[arg(long)]
+        blob: String,
     },
 
     /// Decrypt a vault blob and print the document. **No network.**
@@ -224,6 +285,7 @@ pub async fn run(api: Api) -> Result<(), ApiCommandError> {
             parallelism,
         } => sign_challenge(&challenge, &salt, memory_kib, iterations, parallelism),
         Api::Derive {
+            seed,
             sync,
             commits,
             authenticator,
@@ -232,6 +294,7 @@ pub async fn run(api: Api) -> Result<(), ApiCommandError> {
             iterations,
             parallelism,
         } => derive(
+            seed.as_deref(),
             sync.as_deref(),
             &commits,
             authenticator.as_deref(),
@@ -240,6 +303,7 @@ pub async fn run(api: Api) -> Result<(), ApiCommandError> {
             iterations,
             parallelism,
         ),
+        Api::OpenUnlock { key, blob } => open_unlock(&key, &blob),
         Api::Decode { blob, key } => decode(&blob, &key),
     }
 }
@@ -303,6 +367,18 @@ fn sign_challenge(
     Ok(())
 }
 
+/// The one piece of arithmetic between a session and its seed.
+///
+/// Mirrors what `heyl_app::unlock` does inside a use case, with the key passed
+/// in rather than read from a keychain.
+fn open_unlock(key: &str, blob: &str) -> Result<(), ApiCommandError> {
+    let key = heyl_app::recovery::decode_key(key)?;
+    let plaintext = key.open(&decode_b64(blob, "blob")?)?;
+    let seed = Seed::try_from_slice(&plaintext)?;
+    println!("{}", b64(seed.expose_secret()));
+    Ok(())
+}
+
 /// Unseal a vault blob and print the document it frames.
 fn decode(blob: &str, key: &str) -> Result<(), ApiCommandError> {
     let blob = decode_b64(blob, "blob")?;
@@ -326,15 +402,28 @@ fn decode(blob: &str, key: &str) -> Result<(), ApiCommandError> {
 /// Walk the hierarchy: seed, then profile seeds, then vault keys.
 #[allow(clippy::too_many_arguments)]
 fn derive(
+    seed: Option<&str>,
     sync: Option<&std::path::Path>,
     commits: &[std::path::PathBuf],
     authenticator: Option<&str>,
     salt: &str,
-    memory_kib: u32,
-    iterations: u32,
+    memory_kib: Option<u32>,
+    iterations: Option<u32>,
     parallelism: u32,
 ) -> Result<(), ApiCommandError> {
-    let seed = seed_from_code(salt, memory_kib, iterations, parallelism)?;
+    // Either input reaches the same 32 bytes. `--seed` is the one that
+    // destroys nothing: clap makes the Argon2id parameters required only in
+    // its absence, so the two forms cannot be half-given.
+    let seed = if let Some(seed) = seed {
+        Seed::try_from_slice(&decode_b64(seed, "seed")?)?
+    } else {
+        let (Some(memory_kib), Some(iterations)) = (memory_kib, iterations) else {
+            return Err(ApiCommandError::Argument(
+                "without --seed, both --memory-kib and --iterations are needed".to_owned(),
+            ));
+        };
+        seed_from_code(salt, memory_kib, iterations, parallelism)?
+    };
     println!("seed{:56}{}", "", b64(seed.expose_secret()));
 
     let Some(sync) = sync else {
@@ -350,7 +439,9 @@ fn derive(
     let snapshot = snapshot_from(sync)?;
     let commits = commits
         .iter()
-        .map(|path| read_json(path).and_then(|raw| Ok(heyl_grpc::json::vault_commits(&raw)?)))
+        .map(|path| {
+            read_json(path).and_then(|raw| Ok((path, heyl_grpc::json::vault_commits(&raw)?)))
+        })
         .collect::<Result<Vec<_>, ApiCommandError>>()?;
 
     for profile in &snapshot.profiles {
@@ -370,7 +461,7 @@ fn derive(
             b64(high.expose_secret())
         );
 
-        for vault in &commits {
+        for (path, vault) in &commits {
             let Some(vault_lock) = vault.profile_lock.as_ref() else {
                 continue;
             };
@@ -380,15 +471,24 @@ fn derive(
             // Two keys per vault, and they are not interchangeable:
             // `vaultSecret` opens the document, `protectedSecret` opens the
             // passwords inside it (DESIGN.md §3).
-            let generation = &vault.current_generation_id;
+            //
+            // The generation a lock is checked against is the *profile's*,
+            // as `doctor` and `meta_vault` pass it — not the vault's own
+            // `current_generation_id`. The two coincide until a vault is
+            // squashed under a fresh key, and then every lock looks stale.
+            let generation = &profile.key_generation_id;
             let secret = storable.unlock_vault(vault_lock, profile.id, generation)?;
             let protected = high.unlock_vault(vault_lock, profile.id, generation)?;
+            // A `ListCommits` response does not name its vault, so the file the
+            // caller passed is the label that lets a key be matched to `decode`.
             println!(
-                "  vault         vaultSecret    {}",
+                "  {}  vaultSecret  {}",
+                path.display(),
                 b64(secret.key().expose_secret())
             );
             println!(
-                "  vault         protected      {}",
+                "  {}  protected    {}",
+                path.display(),
                 b64(protected.key().expose_secret())
             );
         }

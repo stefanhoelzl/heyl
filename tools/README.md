@@ -91,6 +91,44 @@ cargo run -p heyl --features dev -- api call CreateTokens '{…}' --client-type 
 The answer it found is UTF-8, and it is pinned in `heyl_domain::ChallengeEncoding`
 and in the offline suite.
 
+### Reading a real account without destroying it
+
+`api derive` used to start at a recovery code, which meant the only way to reach
+a seed by hand was the **destructive** login: `CreateTokens` with a
+`BACKUP_CODE` signature disconnects the phone authenticator. That is fine when
+the recovery *is* the subject, and wrong when you only want to look at a
+document — which is most sittings, because the read path is designed against
+what heylogin actually stores.
+
+`api open-unlock` is the swipe-side counterpart of `sign-challenge`: the one
+piece of arithmetic between a session and its seed, pure and offline.
+
+```sh
+export HEYL_STORE=$PWD/store.json          # a --features dev build writes here
+cargo run -p heyl --features dev -- session create lab --unlock     # one swipe
+
+TOKEN=$(jq -r '.secrets["heyl:lab/access_token"]'    "$HEYL_STORE")
+KEY=$(jq   -r '.secrets["heyl:lab/session_priv_key"]' "$HEYL_STORE")
+
+heyl api call Sync --token "$TOKEN" > sync.json
+SEED=$(heyl api open-unlock --key "$KEY" \
+         --blob "$(jq -r '.syncUpdate.sessionUnlock.encryptedSecret' sync.json)")
+
+heyl api call AuthenticatorService/List --token "$TOKEN" > auths.json  # the only secretSalt source
+heyl api call ListCommits '{"vaultId":"…","forceLocks":true}' --token "$TOKEN" > commits-1.json
+
+heyl api derive --seed "$SEED" --salt "$SALT" --authenticator "$AUTH_ID" \
+                --sync sync.json --commits commits-1.json
+heyl api decode --blob "$BLOB" --key "$VAULT_SECRET"
+```
+
+Nothing here is destroyed: the phone stays paired, the recovery code is unspent,
+and no fixture is written — so **the retirement ritual is not owed for a sitting
+that only looks**. It is owed the moment a recording is committed.
+
+A store key is `SecretKey::service()` + `/` + the item name — `heyl/access_token`
+for the default slot, `heyl:<slot>/access_token` for a named one.
+
 ### `record`
 
 Fills in a scenario against a real account, in one command.

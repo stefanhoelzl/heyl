@@ -210,7 +210,10 @@ async fn register(
 
     let mut meta = meta_vault::open(ports, &session).await?;
     let wanted = display.map_or_else(|| slot.default_display(), str::to_owned);
-    let display = heyl_vault::meta::disambiguate(&wanted, &meta.document);
+    // Only the account's live sessions reserve a name; a device heylogin's app
+    // deleted leaves a ghost META entry that never counts (DESIGN.md §3).
+    let live: Vec<SessionId> = session.sync.sessions.iter().map(|s| s.id).collect();
+    let display = heyl_vault::meta::disambiguate(&wanted, &meta.document, &live);
     let entry = metadata(&session, session_key, display.clone(), ports.clock.now());
     heyl_vault::meta::upsert_session(&mut meta.document, session_id, &entry).map_err(|e| {
         AppError::VaultContent {

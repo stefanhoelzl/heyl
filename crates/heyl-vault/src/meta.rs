@@ -1,10 +1,10 @@
 //! The META vault's `sessions` map — the device list, as heylogin stores it.
 //!
 //! Every function here is **read-modify-write on the decoded document**, never
-//! a rebuild: a commit blob is the full serialized state, so anything we do not
-//! understand has to come back out unchanged (DESIGN.md §3, "Writing safely").
-//! In practice that means editing the JSON in place and touching exactly one
-//! key — the entry whose id is our own session.
+//! a rebuild: the document is the fold of every commit (`heyl_vault::fold`), so
+//! anything we do not understand has to come back out unchanged (DESIGN.md §3,
+//! "Reading and writing safely"). In practice that means editing the JSON in
+//! place and touching exactly one key — the entry whose id is our own session.
 //!
 //! heymerge is last-write-wins per key on `updateTime`, and the key we write is
 //! one no other client owns, so a concurrent write cannot lose data of ours or
@@ -118,16 +118,21 @@ pub fn set_description(
     Ok(())
 }
 
-/// A display name that no live entry already uses.
+/// A display name that no live device already uses.
 ///
 /// Mirrors the web client's `disambiguateDescription`: `Chrome`, `Chrome (2)`,
-/// `Chrome (3)`. Tombstoned entries do not count — a name is free again once
-/// the device it named is gone.
+/// `Chrome (3)`. A name is taken only by a device the account still has —
+/// `live` is the session ids `Sync` returned. This is deliberately stricter
+/// than "not tombstoned": heylogin's app **never** tombstones a device it
+/// deletes, so its META entry lingers forever (measured: 22 dead entries on one
+/// account). Counting those would push every fresh `heyl CLI` to `heyl CLI
+/// (23)`. Only heyl's own `session remove` writes a tombstone, so a live-id
+/// join is the only way to tell a real device from a ghost (DESIGN.md §3).
 #[must_use]
-pub fn disambiguate(description: &str, document: &Document) -> String {
+pub fn disambiguate(description: &str, document: &Document, live: &[SessionId]) -> String {
     let taken: Vec<String> = sessions(document)
         .into_iter()
-        .filter(|(_, entry)| !entry.is_deleted)
+        .filter(|(id, entry)| !entry.is_deleted && live.contains(id))
         .filter_map(|(_, entry)| entry.description)
         .collect();
 
@@ -258,11 +263,15 @@ mod tests {
     fn disambiguates_like_the_web_client() {
         let mut doc = document();
         upsert_session(&mut doc, id(1), &entry("heyl CLI")).expect("writes");
-        assert_eq!(disambiguate("heyl CLI", &doc), "heyl CLI (2)");
+        let live = [id(1), id(2)];
+        assert_eq!(disambiguate("heyl CLI", &doc, &live), "heyl CLI (2)");
 
         upsert_session(&mut doc, id(2), &entry("heyl CLI (2)")).expect("writes");
-        assert_eq!(disambiguate("heyl CLI", &doc), "heyl CLI (3)");
-        assert_eq!(disambiguate("something else", &doc), "something else");
+        assert_eq!(disambiguate("heyl CLI", &doc, &live), "heyl CLI (3)");
+        assert_eq!(
+            disambiguate("something else", &doc, &live),
+            "something else"
+        );
     }
 
     /// A tombstoned device frees its name again.
@@ -271,6 +280,17 @@ mod tests {
         let mut doc = document();
         upsert_session(&mut doc, id(1), &entry("heyl CLI")).expect("writes");
         tombstone_session(&mut doc, id(1), now()).expect("tombstones");
-        assert_eq!(disambiguate("heyl CLI", &doc), "heyl CLI");
+        assert_eq!(disambiguate("heyl CLI", &doc, &[id(1)]), "heyl CLI");
+    }
+
+    /// A ghost — an entry heylogin's app left behind when it deleted the device
+    /// — is not live, so its name is free even though it was never tombstoned.
+    #[test]
+    fn a_name_held_only_by_a_dead_device_is_free() {
+        let mut doc = document();
+        upsert_session(&mut doc, id(1), &entry("heyl CLI")).expect("writes");
+        // id(1) is not in the live set: the device is gone from the account,
+        // but its (untombstoned) META entry lingers.
+        assert_eq!(disambiguate("heyl CLI", &doc, &[id(2)]), "heyl CLI");
     }
 }

@@ -5247,7 +5247,7 @@
           "pairingUrl": "https://heylogin.app/qr/#LexX8FpraiWV2Xk6QHiRPPhKoGYoU5I2baf8wa_ZnWk"
         },
         {
-          "display": "ci (3)",
+          "display": "ci",
           "policy": {
             "autoExtend": false,
             "strict": true,

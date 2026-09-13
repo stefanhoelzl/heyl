@@ -186,11 +186,17 @@ can never happen during an ordinary read.
 display-name` rewrites one field of the same entry. **No other command ever commits.** There is no periodic refresh: `SyncUpdate.Session` already
 carries `last_used_at` server-side, so refreshing `updateTime` would tell the app nothing new.
 
-### Writing safely
+### Reading and writing safely
 
-A commit blob is the **full serialized state**, not a delta, and `CreateCommitRequest` carries
-`latest_commit_id`. So the write is read-modify-write under optimistic concurrency and **no
-merge is ever executed**. Rails:
+**A commit is a delta, not a snapshot** — measured, and matching heylogin's own `heymerge`
+(`mergeVaults`). Each commit carries only the elements it touched, and the current state is
+**every commit folded in order**, per-element last-write-wins on `updateTime` (`heyl_vault::fold`).
+A reader that took `commits.last()` would see one edit and call it the whole vault — the bug
+that made `session create` count only a fraction of the account's devices. So a read *folds*.
+
+The write stays read-modify-write under optimistic concurrency, and **no merge is ever
+executed**: heyl re-encodes the folded document, touching exactly one key — the entry whose id is
+its own session — and `CreateCommitRequest` carries `latest_commit_id`. Rails:
 
 - operate on raw JSON, preserving unknown keys (the schemas use `objectPassthrough` deliberately);
 - refuse to write if the content descriptor version is not `DESCRIPTOR_VERSION_HEYMERGE = 2`;
@@ -705,17 +711,19 @@ placeholder so it cannot be taken in the meantime.
 ### Vault decode path
 
 ```
-ListCommits ─► blob ─► symDecrypt(vaultSecret, ·) ─► first byte selects format:
-                                                       0x01 → Snappy (raw block)
-                                                       0x5B → JSON  (automerge, legacy)
-                                                       0x7B → JSON  (heymerge)
-                                                     ─► {type, version, content}
-                                                     ─► content.<list> : map<id, element>
+ListCommits ─► [blob] ─► symDecrypt(vaultSecret, ·) each ─► first byte selects format:
+                                                             0x01 → Snappy (raw block)
+                                                             0x5B → JSON  (automerge, legacy)
+                                                             0x7B → JSON  (heymerge)
+                                                           ─► {type, version, content}
+                                                           ─► fold(all) : content.<list> : map<id, element>
 ```
 
-Elements are `{...fields, updateTime, isDeleted}`. Filter tombstones (`isDeleted: true`) and
-archived entries (`isArchived: true`) from `list` output. Protected values decrypt as
-`symDecrypt(protectedSecret, encrypted)`.
+`ListCommits` returns **every** commit, and each is a delta; the vault's state is the fold of
+all of them, per-element last-write-wins on `updateTime` (`heyl_vault::fold`, "Reading and
+writing safely" above). Elements are `{...fields, updateTime, isDeleted}`. Filter tombstones
+(`isDeleted: true`) and archived entries (`isArchived: true`) from `list` output. Protected
+values decrypt as `symDecrypt(protectedSecret, encrypted)`.
 
 Legacy `0x5B` automerge documents are **read-only and best-effort**: if we encounter one we
 report it rather than guess.

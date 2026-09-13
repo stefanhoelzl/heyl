@@ -750,8 +750,10 @@ anyone who can decrypt that vault can read it.
 also chain to each other via `ProfileProfileLock` (a profile unlocked from an upstream profile).
 
 ### Commits & serialization
-- A commit's `blob = symEncrypt(vaultSecret, serialize(state))`; `Commit.getContent(secret) =
-  symDecrypt(secret, blob)`.
+- A commit's `blob = symEncrypt(vaultSecret, serialize(delta))`; `Commit.getContent(secret) =
+  symDecrypt(secret, blob)`. The `delta` holds only the elements that commit changed — **not**
+  the whole vault — so a single blob is not the current state; see the fold in the next point.
+  *(Measured: a login vault's fourth commit held one login, not the four that existed.)*
 - *Whitepaper §6.4.1*: commits are **not cryptographically linked**. They are ordered by their
   server-side creation time, and applying them in order yields the current state. There is no hash
   chain to verify.

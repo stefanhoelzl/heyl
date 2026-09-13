@@ -3,7 +3,8 @@
 //! This is the one vault heyl writes to, and the only exception to "read-only
 //! by design": a session registers itself as a named, revocable device
 //! (DESIGN.md §2). Everything here therefore follows §3's rails —
-//! read-modify-write of the **full state**, guarded by `latest_commit_id`,
+//! read-modify-write of the folded state (every commit is a delta;
+//! [`open`] folds them with `heyl_vault::fold`), guarded by `latest_commit_id`,
 //! preserving unknown keys, refusing to write a descriptor version we do not
 //! understand.
 //!
@@ -69,16 +70,30 @@ pub async fn open(ports: &Ports<'_>, session: &Unlocked) -> Result<MetaVault, Ap
             source: e,
         })?;
 
-    let commit = commits
+    let latest_commit = commits
         .commits
         .last()
-        .ok_or_else(|| meta_err(summary.id, "the META vault has no commits"))?;
+        .ok_or_else(|| meta_err(summary.id, "the META vault has no commits"))?
+        .id;
 
-    let plaintext = vault_secret
-        .key()
-        .decrypt(&commit.blob)
-        .map_err(AppError::Crypto)?;
-    let document = heyl_vault::decode(&plaintext).map_err(|e| AppError::VaultContent {
+    // Commits are deltas: the current document is every commit folded, not the
+    // last one (DESIGN.md §3, corrected — `heyl_vault::fold`). Reading only the
+    // last would show whichever session was written most recently and miss the
+    // rest, which is exactly what made `disambiguate` pick a colliding name.
+    let mut documents = Vec::with_capacity(commits.commits.len());
+    for commit in &commits.commits {
+        let plaintext = vault_secret
+            .key()
+            .decrypt(&commit.blob)
+            .map_err(AppError::Crypto)?;
+        documents.push(
+            heyl_vault::decode(&plaintext).map_err(|e| AppError::VaultContent {
+                vault: summary.id,
+                source: e,
+            })?,
+        );
+    }
+    let document = heyl_vault::fold(&documents).map_err(|e| AppError::VaultContent {
         vault: summary.id,
         source: e,
     })?;
@@ -86,7 +101,7 @@ pub async fn open(ports: &Ports<'_>, session: &Unlocked) -> Result<MetaVault, Ap
     Ok(MetaVault {
         id: summary.id,
         document,
-        latest_commit: commit.id,
+        latest_commit,
         key: vault_secret.into_key(),
     })
 }

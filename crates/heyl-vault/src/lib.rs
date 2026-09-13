@@ -20,8 +20,9 @@
 //! key in the META vault (DESIGN.md §4).
 
 pub mod error;
+pub mod merge;
 pub mod meta;
 pub mod serialize;
-
 pub use error::VaultError;
+pub use merge::fold;
 pub use serialize::{DESCRIPTOR_VERSION_HEYMERGE, Document, Format, decode, encode};

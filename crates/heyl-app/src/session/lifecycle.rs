@@ -372,30 +372,52 @@ pub async fn lock(ports: &Ports<'_>, slot: &Slot) -> Result<(), AppError> {
 /// [`AppError::UnlockRequired`] if the entry cannot be tombstoned and `force`
 /// was not given.
 pub async fn remove(ports: &Ports<'_>, slot: &Slot, force: bool) -> Result<Removed, AppError> {
-    let adopted = adopt(ports, slot).await?;
-
-    let tombstoned = match tombstone(ports, slot, adopted.session_id).await {
-        Ok(()) => true,
+    // A slot can be left half-written — a token with no session id, say, from
+    // an interrupted `create` — and `--force` is exactly for clearing that up.
+    // So failing to read its credentials is fatal only *without* `--force`;
+    // with it, there is nothing to tombstone or delete server-side, and we go
+    // straight to forgetting the local remnants. Reading first and only then
+    // deciding is what lets a broken slot be removed at all.
+    let adopted = match adopt(ports, slot).await {
+        Ok(adopted) => Some(adopted),
         Err(e) if force => {
             ports
                 .terminal
-                .note(&format!("could not tombstone the device entry: {e}"));
-            false
+                .note(&format!("could not read the slot's credentials: {e}"));
+            None
         }
         Err(e) => return Err(e),
     };
 
-    // Deleting the session works with any valid token, so this can succeed
-    // even when the tombstone could not.
-    let deleted = match ports.api.delete_session(adopted.session_id).await {
-        Ok(()) => true,
-        Err(e) if force => {
-            ports
-                .terminal
-                .note(&format!("could not delete the session: {e}"));
-            false
+    let (tombstoned, deleted) = match adopted {
+        Some(adopted) => {
+            let tombstoned = match tombstone(ports, slot, adopted.session_id).await {
+                Ok(()) => true,
+                Err(e) if force => {
+                    ports
+                        .terminal
+                        .note(&format!("could not tombstone the device entry: {e}"));
+                    false
+                }
+                Err(e) => return Err(e),
+            };
+            // Deleting the session works with any valid token, so this can
+            // succeed even when the tombstone could not.
+            let deleted = match ports.api.delete_session(adopted.session_id).await {
+                Ok(()) => true,
+                Err(e) if force => {
+                    ports
+                        .terminal
+                        .note(&format!("could not delete the session: {e}"));
+                    false
+                }
+                Err(e) => return Err(AppError::Api(e)),
+            };
+            (tombstoned, deleted)
         }
-        Err(e) => return Err(AppError::Api(e)),
+        // The slot could not even be read: nothing reached the backend, so
+        // nothing there was tombstoned or deleted.
+        None => (false, false),
     };
 
     forget(ports, slot).await?;

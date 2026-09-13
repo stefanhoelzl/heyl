@@ -46,7 +46,7 @@ opposite policies at once:
 
 ```sh
 heyl session create claude-code --strict     # its own device, re-asks every access
-HEYL_SESSION=claude-code heyl get github.com # your phone: "approve claude-code?"
+HEYL_SESSION=claude-code heyl get -l github.com # your phone: "approve claude-code?"
 ```
 
 The name on that approval screen is the **only** thing your phone shows about who is asking —
@@ -104,7 +104,7 @@ python3 -m venv .venv && ./.venv/bin/pip install protobuf
 ## What it will do
 
 ```sh
-heyl get github.com --field password
+heyl get -l github.com -f password
 heyl totp aws-prod
 heyl list --format json | jq -r '.[].title'
 heyl run --env-file .env.tpl -- terraform apply

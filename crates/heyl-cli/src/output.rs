@@ -26,6 +26,7 @@
 
 use std::io::Write as _;
 
+use heyl_app::get::{Located, LoginView, Selection};
 use heyl_app::session::{Created, Removed, Setting, SettingValue, Slot, SlotStatus};
 use heyl_domain::SessionPolicy;
 #[cfg(feature = "dev")]
@@ -476,6 +477,166 @@ fn json(report: &Report, format: Format) {
             "summary": { "passed": pass, "failed": fail, "skipped": skip },
         }),
     );
+}
+
+/// What `heyl get` found.
+///
+/// The one command that prints a **secret** to stdout, so the rules are
+/// DESIGN.md §5's to the letter: with `-f`, the raw value with a trailing
+/// newline only on a TTY, so `$(…)` is byte-exact; without, `name: value` lines
+/// that always end in a newline. Under `--format json`, a `-f` value is a bare
+/// JSON string and a whole login is a wire-shaped object with its secrets
+/// decrypted in place. An ambiguity note goes to stderr, where it does not
+/// disturb either stdout rendering.
+pub fn get(located: &Located, format: Format) {
+    if located.match_count > 1 {
+        eprintln!(
+            "heyl: {} logins match; using the most recently changed. \
+             Pass --login-id to pick one exactly.",
+            located.match_count
+        );
+    }
+    match &located.selection {
+        Selection::Value(value) => get_value(value, format),
+        Selection::Login(view) => get_login(view, format),
+    }
+}
+
+/// A single field value.
+fn get_value(value: &str, format: Format) {
+    if format.is_json() {
+        emit(format, &serde_json::Value::String(value.to_owned()));
+        return;
+    }
+    // Raw, with a trailing newline only when stdout is a terminal — an exact
+    // capture in `$(…)`, a readable line at a prompt (DESIGN.md §5).
+    let mut out = std::io::stdout();
+    let _ = write!(out, "{value}");
+    if std::io::IsTerminal::is_terminal(&out) {
+        let _ = writeln!(out);
+    }
+    let _ = out.flush();
+}
+
+/// A whole login.
+fn get_login(view: &LoginView, format: Format) {
+    if format.is_json() {
+        emit(format, &login_document(view));
+        return;
+    }
+    let mut out = std::io::stdout();
+    for line in login_lines(view) {
+        let _ = writeln!(out, "{line}");
+    }
+    let _ = out.flush();
+}
+
+/// The human `name: value` lines, in the fixed field order, non-empty only.
+fn login_lines(view: &LoginView) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut push = |key: &str, value: &str| lines.push(field_line(key, value));
+
+    push("id", &view.id);
+    if let Some(name) = &view.name {
+        push("name", name);
+    }
+    if let Some(title) = &view.title {
+        push("title", title);
+    }
+    if let Some(username) = &view.username {
+        push("username", username);
+    }
+    if let Some(password) = &view.password {
+        push("password", password);
+    }
+    if !view.websites.is_empty() {
+        push("website", &view.websites.join(", "));
+    }
+    if let Some(note) = &view.note {
+        push("note", note);
+    }
+    if !view.labels.is_empty() {
+        push("labels", &view.labels.join(", "));
+    }
+    for (name, value) in &view.custom {
+        push(name, value);
+    }
+    if let Some(created) = &view.created {
+        push("created", created);
+    }
+    if let Some(edited) = &view.edited {
+        push("edited", edited);
+    }
+    if view.is_deleted {
+        push("deleted", "true");
+    }
+    if view.is_archived {
+        push("archived", "true");
+    }
+    lines
+}
+
+/// `key: value`, with a multi-line value's continuation lines indented under
+/// the value column so one field still reads as one block (DESIGN.md §5).
+fn field_line(key: &str, value: &str) -> String {
+    if value.contains('\n') {
+        let indent = " ".repeat(key.len() + 2);
+        format!("{key}: {}", value.replace('\n', &format!("\n{indent}")))
+    } else {
+        format!("{key}: {value}")
+    }
+}
+
+/// The JSON document: the wire object's key names, secrets decrypted in place,
+/// only the fields the login actually has (DESIGN.md §5).
+fn login_document(view: &LoginView) -> serde_json::Value {
+    let mut doc = serde_json::Map::new();
+    doc.insert("id".to_owned(), view.id.clone().into());
+    if let Some(name) = &view.name {
+        doc.insert("displayHeadline".to_owned(), name.clone().into());
+    }
+    if let Some(title) = &view.title {
+        doc.insert("title".to_owned(), title.clone().into());
+    }
+    if let Some(username) = &view.username {
+        doc.insert("username".to_owned(), username.clone().into());
+    }
+    if let Some(password) = &view.password {
+        doc.insert("password".to_owned(), password.clone().into());
+    }
+    if !view.websites.is_empty() {
+        doc.insert("websites".to_owned(), view.websites.clone().into());
+    }
+    if let Some(note) = &view.note {
+        doc.insert("note".to_owned(), note.clone().into());
+    }
+    if !view.labels.is_empty() {
+        doc.insert("tags".to_owned(), view.labels.clone().into());
+    }
+    if !view.custom.is_empty() {
+        let fields: Vec<serde_json::Value> = view
+            .custom
+            .iter()
+            .map(|(name, value)| serde_json::json!({ "name": name, "value": value }))
+            .collect();
+        doc.insert("customFields".to_owned(), fields.into());
+    }
+    if let Some(created) = &view.created {
+        doc.insert("creationTime".to_owned(), created.clone().into());
+    }
+    if let Some(edited) = &view.edited {
+        doc.insert("editTime".to_owned(), edited.clone().into());
+    }
+    if let Some(change_time) = &view.change_time {
+        doc.insert("changeTime".to_owned(), change_time.clone().into());
+    }
+    if view.is_deleted {
+        doc.insert("isDeleted".to_owned(), true.into());
+    }
+    if view.is_archived {
+        doc.insert("isArchived".to_owned(), true.into());
+    }
+    serde_json::Value::Object(doc)
 }
 
 /// How to draw a pairing code, as a flag value.

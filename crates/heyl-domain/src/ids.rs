@@ -75,6 +75,19 @@ uuid_id!(
     /// Identifies a session (§6).
     SessionId
 );
+uuid_id!(
+    /// Identifies a login within a vault's `logins` list (§7).
+    LoginId
+);
+uuid_id!(
+    /// Identifies a custom field on a login.
+    ///
+    /// Not every custom field has one: entries written by importers after the
+    /// heymerge migration can arrive without an `id`, and heylogin invents a
+    /// random one on each parse (`CustomField.ts`). heyl never invents one, so
+    /// such a field is reachable by name but not by this id (DESIGN.md §5).
+    FieldId
+);
 
 /// A profile's key generation.
 ///

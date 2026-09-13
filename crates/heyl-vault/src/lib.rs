@@ -20,6 +20,7 @@
 //! key in the META vault (DESIGN.md §4).
 
 pub mod error;
+pub mod login;
 pub mod merge;
 pub mod meta;
 pub mod serialize;

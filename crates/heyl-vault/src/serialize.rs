@@ -45,6 +45,22 @@ pub struct Document {
 }
 
 impl Document {
+    /// An empty document, for a vault that has no commits to fold.
+    ///
+    /// It carries no content, so a reader finds no elements in it — which is
+    /// exactly what an empty vault is. The framing is the one every heymerge
+    /// vault uses, so it would round-trip through [`encode`] if a caller ever
+    /// wrote it, though a no-commit vault is only ever read.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            format: Format::Snappy,
+            document_type: String::new(),
+            version: DESCRIPTOR_VERSION_HEYMERGE,
+            content: Map::new(),
+        }
+    }
+
     /// Whether this document is one v1 would be allowed to write to.
     ///
     /// M2 never writes; the check lives here because it is a property of the

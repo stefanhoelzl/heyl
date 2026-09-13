@@ -14,7 +14,7 @@ Secret retrieval for shells and scripts. Fetch a password, TOTP code or custom f
 pipe it into other tools, inject it into a child process's environment.
 
 ```
-$ heyl get github.com --field password
+$ heyl get -l github.com -f password
 $ heyl totp aws-prod
 $ heyl list --format json | jq -r '.[].title'
 $ heyl run --env-file .env.tpl -- terraform apply
@@ -782,23 +782,80 @@ everything afterwards, invisibly, whatever the timeout says (`HEYLOGIN_SPEC.md` 
 live). Real revocation is deleting the *authenticator*, which rotates the seed — not locking,
 and not deleting the session.
 
-### Selector semantics — ⚠ PROPOSED
+### `get` — read a login, decided and implemented
 
-`get`, `totp` and friends take a selector resolved in this precedence order:
+```
+heyl get [-v <name> | -V <uuid>]   (vault, optional)
+          -l <title> | -L <uuid>   (login, required)
+         [-f <name>  | -F <uuid>]  (field, optional)
+```
 
-1. exact login id (uuid)
-2. exact `title` match, case-insensitive
-3. exact website host match
-4. unique case-insensitive substring of `title`
+**Selectors are flags, not positionals**, and each slot takes a name or an id. There is no
+one-argument selector and no precedence ladder — the two-grammar surface the earlier proposal and
+the README example implied is gone. A vault is optional (elided → search every readable login
+vault); a login is required; a field is optional.
 
-Scoped by `--vault <name|id>` when given. **Ambiguity is an error, never a guess**: exit code 3,
-candidates listed on stderr, nothing on stdout. Determinism matters more than convenience in a
-tool that runs unattended.
+- **`-l <title>`** matches a login's `displayHeadline` (the name the app shows), `title`, or any
+  website — **exact and case-insensitive**, no substring. Websites compare as stored, byte for byte
+  after casefolding; a login titled by another client stays matchable by `title` even though heyl
+  never writes one.
+- **`-v <name>`** matches `private`, `inbox`, an organisation's name (free, from `Sync`), or a
+  team's name — the last costs opening that team's `groupMeta` vault, so team names are resolved
+  only after the free ones miss, one decrypt at a time. `-V <uuid>` names any vault without paying.
+- **A vault has no name on the wire.** `SyncUpdate.Vault` carries id, type, generation,
+  `associated_vault_id`, `organization_id`, `inbox_slug` — no name — so `private`/`inbox` are
+  constants heyl chooses, an organisation-personal vault borrows `Organization.name`, and a team's
+  name lives (E2EE) in its paired `groupMeta`.
 
-### Output contract — ⚠ PROPOSED
+**Ambiguity is resolved, not refused** — the opposite of the earlier proposal, because a password
+manager that makes you disambiguate on every duplicate is one you stop scripting. When several
+logins match, they are ranked and the **first is returned**, with a note on stderr saying how many
+matched and that the most recently changed was used; `-L <uuid>` is the exact escape. The ranking,
+in order:
+
+1. **liveness** — live, then archived, then a hard-deleted tombstone (heymerge's own three-way);
+2. **vault tier** — PRIVATE, ORGANIZATION_PERSONAL, TEAM, INBOX;
+3. **recency** — newest `changeTime ?? editTime` first, which is heylogin's own list order
+   (`loginFilter.ts`); a live login you just touched is what a person expects at the top;
+4. **id** — a total order, so the result is deterministic across runs.
+
+Deleted and archived logins are **never filtered out** — `-L` returns one, and a name search ranks
+it last rather than hiding it. A miss (`-l`/`-L`/`-v`/`-V`/`-f`/`-F` matching nothing) is exit 2
+whose message **names nothing**: no candidates, no vault list, so an error never leaks what the
+account holds.
+
+### Fields
+
+Without `-f`/`-F`, the whole login prints. The field set is a **fixed allow-list** —
+`name` (`displayHeadline`), `title`, `username`, `password`, `website`, `note`, `labels` (the
+stored `tags`), `created`, `edited`, and the login `id` — plus every `customFields` entry by its
+own name. Everything else is structure and never printed, `history` above all: it carries old
+passwords. Empty values are omitted.
+
+- **`-f <name>`** names one field, case-sensitively; a built-in wins a clash with a custom field of
+  the same name, and the shadowed custom field still prints in the whole-login form. A named field
+  that exists but is empty prints nothing and exits 0 — an empty value read is not a miss.
+- **`-F <uuid>`** names a custom field by its id. A field stored without an id (older imports;
+  heylogin invents a random one per parse) is reachable only by `-f`, never by `-F` — heyl never
+  invents an id, so `-F` cannot silently drift.
+- `totp` is **not** a field: `-f totp` is exit 2, and `heyl totp` owns time-based codes.
+- A protected value (`password`, a protected custom field) decrypts with the vault's
+  `protectedSecret`; `isEmpty` marks a blank field, which needs no key.
+
+A vault in a multi-vault search that will not open — an unsupported org type, an unwrappable lock,
+a legacy `0x5B` automerge document — is **skipped silently**; the same vault named by `-v`/`-V` is
+exit 1, because you asked for that one.
+
+### Output contract — decided, and implemented
 
 - A secret goes to **stdout, raw**, with a trailing newline only when stdout is a TTY, so
-  `$(heyl get x)` is exact and interactive use still looks right.
+  `$(heyl get -l x -f password)` is exact and interactive use still looks right.
+- With `-f`/`-F`, stdout is that one value; under `--format json` it is a **bare JSON string**.
+- Without a field flag, the whole login prints as `name: value` lines (a multi-line `note` indents
+  its continuation lines), always newline-terminated; under `--format json` it is a **wire-shaped
+  object** — the login's own key names, its secrets decrypted in place, only the fields it has,
+  plus its `id`. `changeTime` appears there and only there: its meaning is when the login last
+  surfaced in the app's list, which the read path does not otherwise use.
 - Everything else — prompts, progress, QR codes, warnings — goes to **stderr**.
 - Secrets never appear in logs, errors, or `--format json` unless explicitly requested.
 
@@ -826,8 +883,8 @@ code, and the table has one entry per class a caller acts on differently rather 
 |---|---|
 | 0 | success |
 | 1 | generic failure — crypto, a vault, local state that makes no sense |
-| 2 | not found — an unknown slot, an unknown setting |
-| 3 | ambiguous selector |
+| 2 | not found — an unknown slot or setting; a vault, login or field a selector did not match |
+| 3 | *(reserved and unused — `get` resolves ambiguity rather than refusing it)* |
 | 4 | unlock required / expired |
 | 5 | network or backend error |
 | 6 | conflict — the slot already exists |
@@ -1248,7 +1305,7 @@ of this writing; **reserve it with a placeholder publish** before M7, since they
 
 No `-cli` suffix. That suffix exists to disambiguate a tool from a library of the same name; no
 `heyl` library is planned, so it disambiguates nothing and costs four characters on a command
-typed dozens of times a day. `npx heyl get github.com` reads better than the alternative.
+typed dozens of times a day. `npx heyl get -l github.com` reads better than the alternative.
 
 Rejected, with reasons worth keeping:
 

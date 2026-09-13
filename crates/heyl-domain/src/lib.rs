@@ -25,7 +25,9 @@ pub use authenticator::{
     Authenticator, AuthenticatorPublicKeys, AuthenticatorSecret, RecoverySecret,
 };
 pub use error::DomainError;
-pub use ids::{AuthenticatorId, CommitId, KeyGenerationId, ProfileId, SessionId, VaultId};
+pub use ids::{
+    AuthenticatorId, CommitId, FieldId, KeyGenerationId, LoginId, ProfileId, SessionId, VaultId,
+};
 pub use keys::{
     AuthenticatorKeys, HighSecurity, ProfileSeed, ProtectedSecret, Storable, VaultSecret,
     session_encryption_key,
@@ -37,8 +39,8 @@ pub use session::{
     SERVER_UNLOCK_CAP_HOURS, SessionMetadata, SessionPolicy,
 };
 pub use sync::{
-    Challenge, Commit, Profile, ProfilePublicKeys, Session, SessionUnlock, SyncSnapshot, Tokens,
-    VaultCommits, VaultSummary,
+    Challenge, Commit, Organization, Profile, ProfilePublicKeys, Session, SessionUnlock,
+    SyncSnapshot, Tokens, VaultCommits, VaultSummary,
 };
 pub use time::Timestamp;
 pub use vault::{AuthenticatorType, SessionType, VaultType};

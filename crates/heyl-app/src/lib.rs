@@ -18,6 +18,7 @@
 
 pub mod doctor;
 pub mod error;
+pub mod get;
 pub mod meta_vault;
 pub mod recovery;
 pub mod session;

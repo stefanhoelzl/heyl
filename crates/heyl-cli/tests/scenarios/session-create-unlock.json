@@ -2552,7 +2552,7 @@
           "pairingUrl": "https://heylogin.app/qr/#pA2kqnVMug73RMDCwZz1BApfU5xDH4vjHPShZA8rKho"
         },
         {
-          "display": "ci (2)",
+          "display": "ci",
           "policy": {
             "autoExtend": false,
             "strict": false,

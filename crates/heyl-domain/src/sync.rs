@@ -24,7 +24,10 @@ pub struct SyncSnapshot {
     pub client_outdated: bool,
     /// The seed, encrypted to our session key — absent once the unlock lapses.
     pub session_unlock: Option<SessionUnlock>,
-    /// Our own sessions.
+    /// The account's live sessions — every device the account still has, not
+    /// only this machine's. This is the set the app's device list shows, and
+    /// the join `disambiguate` uses to tell a real device from a META entry
+    /// heylogin's app deleted the device but never tombstoned.
     pub sessions: Vec<Session>,
     /// Every vault we can see.
     pub vaults: Vec<VaultSummary>,

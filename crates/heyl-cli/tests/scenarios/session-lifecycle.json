@@ -2514,7 +2514,7 @@
           "pairingUrl": "https://heylogin.app/qr/#UnW3V5Lp9vyYRJwUfp7QSEL4oaLo6C5iAcus2FuD-1w"
         },
         {
-          "display": "CI runner (2)",
+          "display": "CI runner",
           "policy": {
             "autoExtend": false,
             "strict": false,

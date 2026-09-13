@@ -2714,7 +2714,7 @@
           "pairingUrl": "https://heylogin.app/qr/#NknwG_wXR9GJenR8x-xeYiLDrK-DR5iA6NdMucZqJSw"
         },
         {
-          "display": "ci (4)",
+          "display": "ci",
           "policy": {
             "autoExtend": false,
             "strict": false,

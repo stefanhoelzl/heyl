@@ -133,6 +133,45 @@ enum Command {
         command: api::Api,
     },
 
+    /// Read a login from a vault — a whole login, or one field.
+    ///
+    /// Selectors are flags, not positionals. A vault is optional: without one,
+    /// every readable login vault is searched, personal first. A login is
+    /// required. A field is optional: without one, every non-empty field is
+    /// printed as `name: value`; with `-f`/`-F`, just that value goes to stdout,
+    /// raw, so `$(heyl get -l x -f password)` is exact.
+    ///
+    /// `-l` matches a login's display name, title, or a website — exact and
+    /// case-insensitive. When several match, the one the heylogin app shows
+    /// first is returned (most recently changed), and a note on stderr says how
+    /// many matched; `-L <uuid>` picks one exactly.
+    Get {
+        /// Vault by name: `private`, `inbox`, an organisation, or a team.
+        #[arg(short = 'v', long = "vault-name", value_name = "NAME")]
+        vault_name: Option<String>,
+
+        /// Vault by id.
+        #[arg(short = 'V', long = "vault-id", value_name = "UUID")]
+        vault_id: Option<String>,
+
+        /// Login by display name, title, or website.
+        #[arg(short = 'l', long = "login-title", value_name = "TITLE")]
+        login_title: Option<String>,
+
+        /// Login by id.
+        #[arg(short = 'L', long = "login-id", value_name = "UUID")]
+        login_id: Option<String>,
+
+        /// Print one field by name — a built-in (`password`, `username`, …) or
+        /// a custom field. A built-in wins a clash with a custom field.
+        #[arg(short = 'f', long = "field-name", value_name = "NAME")]
+        field_name: Option<String>,
+
+        /// Print one custom field by id.
+        #[arg(short = 'F', long = "field-id", value_name = "UUID")]
+        field_id: Option<String>,
+    },
+
     /// Sessions: this machine's devices on the account.
     ///
     /// A session is what your phone approves, and what it names when it asks.
@@ -328,6 +367,30 @@ async fn run(cli: Cli) -> Result<std::process::ExitCode, AppError> {
             )
             .await?;
             output::recovery(&outcome, cli.format);
+            Ok(std::process::ExitCode::SUCCESS)
+        }
+
+        Command::Get {
+            vault_name,
+            vault_id,
+            login_title,
+            login_id,
+            field_name,
+            field_id,
+        } => {
+            let query = heyl_app::get::Query::from_flags(
+                vault_name,
+                vault_id,
+                login_title,
+                login_id,
+                field_name,
+                field_id,
+            )?;
+            let located = heyl_app::get::run(&ports, &slot, &query, cli.wait).await?;
+            // A strict slot re-locks as the command exits, so the next access
+            // asks the phone again.
+            heyl_app::session::finish(&ports, &slot).await;
+            output::get(&located, cli.format);
             Ok(std::process::ExitCode::SUCCESS)
         }
 

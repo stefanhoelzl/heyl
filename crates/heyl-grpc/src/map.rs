@@ -261,6 +261,13 @@ fn vault(v: &heyl_proto::sync_update::Vault) -> Result<Option<VaultSummary>, Api
             .iter()
             .map(|p| id!(ProfileId, &p.id, "SyncUpdate.Vault.Profile.id"))
             .collect::<Result<_, _>>()?,
+        associated_vault_id: opt_id!(
+            VaultId,
+            &v.associated_vault_id,
+            "SyncUpdate.Vault.associated_vault_id"
+        )?,
+        // An empty organization_id is a personal vault, not an error.
+        organization_id: (!v.organization_id.is_empty()).then(|| v.organization_id.clone()),
     }))
 }
 
@@ -303,6 +310,14 @@ pub fn sync_update(u: &heyl_proto::SyncUpdate) -> Result<SyncSnapshot, ApiError>
             .filter_map(|v| vault(v).transpose())
             .collect::<Result<_, _>>()?,
         profiles: u.profiles.iter().map(profile).collect::<Result<_, _>>()?,
+        organizations: u
+            .organizations
+            .iter()
+            .map(|o| heyl_domain::Organization {
+                id: o.id.clone(),
+                name: o.name.clone(),
+            })
+            .collect(),
     })
 }
 

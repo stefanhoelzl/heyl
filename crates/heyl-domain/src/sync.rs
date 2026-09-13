@@ -33,6 +33,22 @@ pub struct SyncSnapshot {
     pub vaults: Vec<VaultSummary>,
     /// Every profile we can unlock from.
     pub profiles: Vec<Profile>,
+    /// The organisations this account belongs to, for naming their vaults.
+    ///
+    /// A vault has no name on the wire (`SyncUpdate.Vault` carries none), so a
+    /// name is synthesised: an organisation-personal vault borrows its
+    /// organisation's name from here (DESIGN.md §5). Empty for a personal-only
+    /// account.
+    pub organizations: Vec<Organization>,
+}
+
+/// One organisation, reduced to what naming a vault needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Organization {
+    /// The organisation's id, matched against a vault's `organization_id`.
+    pub id: String,
+    /// Its name, as the backend sends it in the clear.
+    pub name: String,
 }
 
 impl SyncSnapshot {
@@ -46,6 +62,15 @@ impl SyncSnapshot {
     #[must_use]
     pub fn session(&self, id: SessionId) -> Option<&Session> {
         self.sessions.iter().find(|s| s.id == id)
+    }
+
+    /// The name of the organisation with this id, if the snapshot carries it.
+    #[must_use]
+    pub fn organization_name(&self, id: &str) -> Option<&str> {
+        self.organizations
+            .iter()
+            .find(|o| o.id == id)
+            .map(|o| o.name.as_str())
     }
 }
 
@@ -103,6 +128,12 @@ pub struct VaultSummary {
     pub commit_id: Option<CommitId>,
     /// The profiles that can open it.
     pub profile_ids: Vec<ProfileId>,
+    /// The vault this one is the meta half of, or is met by — a `TEAM`'s
+    /// `groupMeta` and back. Empty for a vault with no pair.
+    pub associated_vault_id: Option<VaultId>,
+    /// The organisation this vault belongs to, or `None` for a personal vault.
+    /// Names an organisation-personal vault via [`SyncSnapshot::organizations`].
+    pub organization_id: Option<String>,
 }
 
 /// A profile and the keys the backend publishes for it.

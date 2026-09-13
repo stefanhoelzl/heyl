@@ -111,6 +111,45 @@ pub enum AppError {
     #[error("this account has no META vault, so there is nowhere to register a device")]
     NoMetaVault,
 
+    /// A `-v`/`-V` selector matched no readable vault.
+    ///
+    /// The message names nothing — no candidates, no vault list — so an error
+    /// never leaks what the account holds (DESIGN.md §5).
+    #[error("no vault matches")]
+    NoSuchVault,
+
+    /// A `-l`/`-L` selector matched no login.
+    #[error("no login matches")]
+    NoSuchLogin,
+
+    /// A `-f`/`-F` selector named no field the login has.
+    #[error("no such field")]
+    NoSuchField,
+
+    /// A selector was not a valid UUID.
+    #[error("{what} is not a valid id")]
+    MalformedSelector {
+        /// Which selector — `--vault-id`, `--login-id`, `--field-id`.
+        what: &'static str,
+    },
+
+    /// Two selectors that name the same slot were both given.
+    #[error("{a} cannot be used with {b}")]
+    ConflictingSelectors {
+        /// One flag.
+        a: &'static str,
+        /// The other.
+        b: &'static str,
+    },
+
+    /// `get` was run with no login selector.
+    #[error("a login is required: pass --login-title or --login-id")]
+    MissingLoginSelector,
+
+    /// A protected value's ciphertext was not valid base64.
+    #[error("a protected value is stored in a form heyl cannot read")]
+    CorruptProtectedValue,
+
     /// The unlock grant was served but our session key did not open it.
     #[error("the unlock grant did not open with our session key")]
     UnlockUndecryptable,
@@ -209,9 +248,11 @@ impl AppError {
             // A name nobody has. The keychain's own "not found" is how an
             // unknown *slot* arrives here: every session verb reads the slot's
             // token first.
-            Self::UnknownSetting { .. } | Self::Port(heyl_ports::PortError::NotFound { .. }) => {
-                ExitCode::NotFound
-            }
+            Self::UnknownSetting { .. }
+            | Self::NoSuchVault
+            | Self::NoSuchLogin
+            | Self::NoSuchField
+            | Self::Port(heyl_ports::PortError::NotFound { .. }) => ExitCode::NotFound,
 
             // The caller asked to make something that is already there. The
             // action — pick another name, or remove that one — is different
@@ -224,6 +265,9 @@ impl AppError {
             Self::BadSettingValue { .. }
             | Self::TimeoutTooShort { .. }
             | Self::MalformedSlot { .. }
+            | Self::MalformedSelector { .. }
+            | Self::ConflictingSelectors { .. }
+            | Self::MissingLoginSelector
             | Self::NotConfirmed => ExitCode::Invalid,
 
             _ => ExitCode::Failure,

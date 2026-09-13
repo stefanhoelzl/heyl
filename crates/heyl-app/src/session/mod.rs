@@ -451,6 +451,48 @@ mod tests {
         assert_eq!(slots(&ports).await, vec!["claude-code"], "index survives");
     }
 
+    /// `--force` must clear a half-written slot — a token with no session id,
+    /// from an interrupted `create` — which `adopt` cannot read. Without this,
+    /// `session remove --force` fails at `adopt` before the force path runs,
+    /// leaving the slot un-createable *and* un-removable.
+    #[tokio::test]
+    async fn force_removes_a_slot_that_cannot_be_adopted() {
+        let store = MemoryStore::default();
+        let ports = ports(&store);
+        let slot = Slot::new(Some("broken"));
+
+        // Present enough for `create` to see it exists, missing what `adopt`
+        // needs: an access token but no session id.
+        store
+            .set(&slot.key(StoredSecret::AccessToken), "token")
+            .await
+            .expect("stores");
+        index_add(&ports, &slot).await.expect("adds");
+
+        let removed = remove(&ports, &slot, true).await.expect("force removes it");
+        assert!(
+            !removed.tombstoned && !removed.deleted,
+            "nothing reached the backend"
+        );
+        assert!(!exists(&ports, &slot).await, "the remnant token is gone");
+        assert!(slots(&ports).await.is_empty(), "and its index entry too");
+    }
+
+    /// The same broken slot without `--force` is still an error: a slot that
+    /// cannot be read is not silently discarded.
+    #[tokio::test]
+    async fn a_broken_slot_without_force_is_an_error() {
+        let store = MemoryStore::default();
+        let ports = ports(&store);
+        let slot = Slot::new(Some("broken"));
+        store
+            .set(&slot.key(StoredSecret::AccessToken), "token")
+            .await
+            .expect("stores");
+
+        assert!(remove(&ports, &slot, false).await.is_err());
+    }
+
     fn ports(store: &MemoryStore) -> Ports<'_> {
         Ports {
             api: &NoApi,
